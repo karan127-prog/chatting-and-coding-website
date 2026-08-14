@@ -3,30 +3,118 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PulseChat — Real-Time Multi-Room Collaboration</title>
-  <meta name="description" content="Premium real-time group chat, live collaborative code studio, WebRTC video calling, voice notes, and protected rooms with Host approval.">
+  <title>PulseChat — Code Studio & Front Page Portal</title>
+  <meta name="description" content="Next-gen real-time group chat, Code Studio editor with Extensions Marketplace, SQLite persistence, and WebRTC video calling.">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/darcula.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/monokai.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/material-darker.min.css">
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 </head>
-<body>
+<body class="theme-vscode-dark">
 
-  <!-- Floating Particles (generated via JS) -->
+  <!-- Floating Particles -->
   <div id="particles-container"></div>
 
+  <!-- App Wrapper -->
   <div id="app-container">
 
-    <!-- ═══════════════════════════════════════════ -->
-    <!-- LEFT SIDEBAR                                -->
-    <!-- ═══════════════════════════════════════════ -->
-    <aside class="sidebar" id="sidebar">
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <!-- 1. FRONT PAGE LOBBY (Landing Dashboard & Room Portal)   -->
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <div class="lobby-view" id="front-page-lobby">
+
+      <!-- Top Navigation Header -->
+      <header class="lobby-navbar">
+        <div class="brand-header" style="padding:0;">
+          <div style="display:flex; gap:8px; margin-right:20px; align-items:center;">
+            <div style="width:12px; height:12px; border-radius:50%; background:#FF5F56; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+            <div style="width:12px; height:12px; border-radius:50%; background:#FFBD2E; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+            <div style="width:12px; height:12px; border-radius:50%; background:#27C93F; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+          </div>
+          <div class="brand-text">
+            <div class="brand-title" style="font-size:1.15rem;">PulseChat <span class="badge-pro">STUDIO</span></div>
+            <div class="brand-subtitle">Real-time Code & Chat Ecosystem</div>
+          </div>
+        </div>
+
+        <div class="lobby-nav-stats">
+          <div class="stat-item"><span class="stat-val" id="stat-active-rooms">3</span> Active Rooms</div>
+          <div class="stat-item"><span class="stat-val" id="stat-active-users">1</span> Online Devs</div>
+          <div class="stat-item"><span class="stat-val" id="stat-db-status">⚡ SQLite DB Active</span></div>
+        </div>
+
+        <div class="lobby-nav-actions">
+          <button class="btn-lobby-action primary" id="lobby-btn-scratchpad">
+            ⚡ Instant Studio Sandbox
+          </button>
+          <button class="btn-lobby-action" id="lobby-btn-create-room">
+            ➕ Create Custom Room
+          </button>
+          <div class="user-profile-badge" id="lobby-profile-badge" style="padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:20px;">
+            <div class="user-avatar" id="lobby-user-avatar">⚡</div>
+            <span id="lobby-username">Developer</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Hero Section -->
+      <section class="lobby-hero">
+        <h1 class="hero-title">Collaborate, Code & Chat in <span class="highlight-text">Real-Time</span></h1>
+        <p class="hero-subtitle">
+          Supercharged with a full Pulse IDE canvas, Extensions Marketplace (Prettier, ESLint, AI Copilot, Live Web Preview), SQLite persistent database, WebRTC video calling, and protected rooms.
+        </p>
+
+        <!-- Room Search & Filter Bar -->
+        <div class="lobby-search-bar">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="lobby-room-search" placeholder="Search rooms by name, tag (#python, #javascript, #web)...">
+          </div>
+
+          <div class="filter-pills" id="lobby-filter-pills">
+            <button class="pill active" data-filter="all">All Rooms</button>
+            <button class="pill" data-filter="python">🐍 Python</button>
+            <button class="pill" data-filter="javascript">⚡ JavaScript</button>
+            <button class="pill" data-filter="web">🌐 Web & HTML</button>
+            <button class="pill" data-filter="protected">🔒 Protected</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rooms Grid Section -->
+      <section class="lobby-rooms-section">
+        <div class="section-title-bar">
+          <h2>Featured Rooms & Workspaces</h2>
+          <span class="section-subtitle" id="lobby-room-count-label">Showing 3 public rooms</span>
+        </div>
+
+        <div class="rooms-grid" id="lobby-rooms-grid">
+          <!-- Dynamically populated via JS -->
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <!-- 2. LEFT WORKSPACE SIDEBAR (Channels & Online Members)     -->
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar" style="display:none;">
 
       <!-- Brand -->
-      <div class="brand-header">
-        <div class="brand-logo">P</div>
+      <div class="brand-header" style="display:flex; align-items:center;">
+        <div style="display:flex; gap:8px; margin-right:12px; align-items:center;">
+          <div style="width:12px; height:12px; border-radius:50%; background:#FF5F56; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+          <div style="width:12px; height:12px; border-radius:50%; background:#FFBD2E; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+          <div style="width:12px; height:12px; border-radius:50%; background:#27C93F; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
+        </div>
+        <button class="btn-back-lobby" id="btn-back-to-lobby" title="Back to Main Lobby" style="margin-right:10px;">🏠</button>
         <div class="brand-text">
           <div class="brand-title">PulseChat</div>
-          <div class="brand-subtitle">Live Collaboration</div>
+          <div class="brand-subtitle">Collaborative Workspace</div>
         </div>
       </div>
 
@@ -45,7 +133,6 @@
 
       <!-- Sidebar Scrollable Content -->
       <div class="sidebar-content">
-
         <!-- Channels Section -->
         <div class="section-label">
           Rooms & Channels
@@ -53,7 +140,7 @@
         </div>
         <ul class="channel-list" id="channel-list"></ul>
 
-        <!-- Online Members (global) -->
+        <!-- Online Members -->
         <div class="section-label" style="margin-top:10px;">
           Online · <span id="user-count">0</span>
         </div>
@@ -66,14 +153,13 @@
           </div>
           <ul class="user-list" id="room-member-list"></ul>
         </div>
-
       </div>
     </aside>
 
-    <!-- ═══════════════════════════════════════════ -->
-    <!-- MAIN CHAT VIEW                              -->
-    <!-- ═══════════════════════════════════════════ -->
-    <main class="chat-main" id="chat-main-view">
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <!-- 3. MAIN CHAT VIEW                                         -->
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <main class="chat-main" id="chat-main-view" style="display:none;">
 
       <!-- Chat Header -->
       <header class="chat-header">
@@ -87,7 +173,7 @@
 
         <div class="mode-toggle-container">
           <button class="btn-mode-tab active" id="btn-mode-chat">💬 Chat</button>
-          <button class="btn-mode-tab" id="btn-mode-code">👨‍💻 Code Studio</button>
+          <button class="btn-mode-tab" id="btn-mode-code">👨‍💻 Pulse Studio</button>
         </div>
 
         <div class="header-actions">
@@ -118,12 +204,7 @@
 
         <!-- Text Input -->
         <div class="input-container" id="input-container">
-          <textarea
-            class="chat-textarea"
-            id="chat-textarea"
-            placeholder="Message the group…"
-            rows="1"
-          ></textarea>
+          <textarea class="chat-textarea" id="chat-textarea" placeholder="Message the group…" rows="1"></textarea>
 
           <div class="input-actions">
             <button class="btn-input-tool" id="btn-attach-file" title="Attach File">📎</button>
@@ -161,83 +242,237 @@
         </div>
 
       </div>
-
     </main>
 
-    <!-- ═══════════════════════════════════════════ -->
-    <!-- LIVE COLLABORATIVE CODE STUDIO              -->
-    <!-- ═══════════════════════════════════════════ -->
-    <main class="code-studio-view" id="code-studio-view">
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <!-- 4. VS CODE COLLABORATIVE CODE STUDIO VIEW                 -->
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <main class="code-studio-view" id="code-studio-view" style="display:none;">
 
-      <!-- Studio Toolbar -->
-      <header class="studio-toolbar">
-        <div class="studio-title-block">
-          <div class="room-badge-icon" style="font-size:20px;">👨‍💻</div>
-          <div>
-            <div class="studio-active-file" id="studio-active-file-name">main.py</div>
-            <div style="font-size:0.65rem;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-top:1px;">Pair Programming Studio</div>
+      <!-- ─── VS Code Activity Bar (Far Left Strip) ──────────────── -->
+      <div class="vscode-activity-bar">
+        <button class="activity-btn active" data-panel="explorer" title="Explorer (Ctrl+Shift+E)"><i class="fa-solid fa-folder"></i></button>
+        <button class="activity-btn" data-panel="search" title="Search & Replace (Ctrl+Shift+F)"><i class="fa-solid fa-magnifying-glass"></i></button>
+        <button class="activity-btn" data-panel="source-control" title="Source Control (Git)"><i class="fa-solid fa-code-branch"></i></button>
+        <button class="activity-btn" data-panel="extensions" title="Extensions Marketplace"><i class="fa-solid fa-cubes"></i></button>
+        <button class="activity-btn" data-panel="copilot" title="Pulse AI Copilot"><i class="fa-solid fa-robot"></i></button>
+        <button class="activity-btn" data-panel="settings" title="Settings & Themes" style="margin-top:auto;"><i class="fa-solid fa-gear"></i></button>
+      </div>
+
+      <!-- ─── VS Code Collapsible Side Panel ─────────────────────── -->
+      <div class="vscode-side-panel" id="vscode-side-panel">
+        
+        <!-- Panel 1: Explorer -->
+        <div class="panel-section active" id="panel-explorer">
+          <div class="panel-header">
+            <span>EXPLORER: WORKSPACE</span>
+            <button class="btn-panel-action" id="btn-studio-new-file" title="New File"><i class="fa-solid fa-file-circle-plus"></i></button>
           </div>
-          <span class="studio-live-badge">● LIVE</span>
+          <div class="panel-content">
+            <div class="tree-group-title">OPEN EDITORS</div>
+            <ul class="open-editors-list" id="studio-open-editors-list"></ul>
+
+            <div class="tree-group-title" style="margin-top:12px;">FILES</div>
+            <ul class="studio-file-tree" id="studio-file-tree"></ul>
+          </div>
         </div>
 
-        <div class="studio-cursors-bar" id="studio-cursors-container"></div>
-
-        <div class="header-actions">
-          <select class="form-input" id="studio-lang-select" style="padding:6px 32px 6px 12px;font-size:0.78rem;width:auto;">
-            <option value="python">Python 3</option>
-            <option value="javascript">JavaScript</option>
-            <option value="html">HTML5</option>
-            <option value="css">CSS3</option>
-            <option value="json">JSON</option>
-          </select>
-          <button class="btn-header-action" id="studio-btn-back-chat">💬 Chat</button>
-          <button class="btn-header-action" id="btn-studio-download-file">💾 Export</button>
-          <button class="btn-header-action primary" id="btn-studio-run-code">▶ Run Code</button>
-        </div>
-      </header>
-
-      <!-- Editor Layout -->
-      <div class="studio-layout">
-
-        <!-- File Tree -->
-        <div class="studio-file-sidebar">
-          <div class="section-label">
-            Files
-            <button class="btn-section-add" id="btn-studio-new-file" title="New File">+</button>
+        <!-- Panel 2: Search & Replace -->
+        <div class="panel-section" id="panel-search" style="display:none;">
+          <div class="panel-header">
+            <span>SEARCH & REPLACE</span>
+            <button class="btn-panel-action" id="search-case-toggle" title="Match Case (Aa)" style="padding:2px 6px;font-size:0.75rem;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:var(--text-muted);cursor:pointer;">Aa</button>
           </div>
-          <ul class="studio-file-tree" id="studio-file-tree"></ul>
-        </div>
-
-        <!-- Editor + Console -->
-        <div class="studio-editor-container">
-          <div class="studio-editor-main">
-            <div class="studio-line-numbers" id="studio-line-numbers"><div>1</div></div>
-            <textarea
-              class="studio-editor-textarea"
-              id="studio-editor-textarea"
-              spellcheck="false"
-              placeholder="# Write Python, JavaScript, or HTML and run it together…"
-            ></textarea>
-          </div>
-
-          <!-- Bottom Panel -->
-          <div class="studio-bottom-panel">
-            <div class="studio-panel-tabs">
-              <button class="studio-tab-btn active" data-tab="console">Console</button>
-              <button class="studio-tab-btn" data-tab="preview">Web Preview</button>
-              <button
-                style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.72rem;padding:4px 8px;"
-                id="btn-studio-clear-console"
-              >Clear</button>
+          <div class="panel-content">
+            <div style="position:relative;">
+              <input type="text" class="panel-input" id="search-query-input" placeholder="Search in active document…">
+              <span id="search-match-badge" style="position:absolute;right:8px;top:8px;font-size:0.7rem;color:var(--text-muted);display:none;">0 matches</span>
             </div>
-            <div class="studio-console-output" id="studio-console-output">
-              <div class="console-line system">Ready — press ▶ Run Code to execute.</div>
+            <input type="text" class="panel-input" id="replace-query-input" placeholder="Replace with…" style="margin-top:6px;">
+            <div class="search-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+              <button class="btn-panel-btn" id="btn-exec-replace-next" title="Replace current selected match">Replace Next</button>
+              <button class="btn-panel-btn primary" id="btn-exec-replace" title="Replace all occurrences in active file">Replace All ⚡</button>
             </div>
-            <iframe class="studio-html-preview" id="studio-html-preview" style="display:none;"></iframe>
+            <div class="search-results-list" id="search-results-list" style="margin-top:12px;"></div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Source Control (Git) -->
+        <div class="panel-section" id="panel-source-control" style="display:none;">
+          <div class="panel-header">SOURCE CONTROL (GIT)</div>
+          <div class="panel-content">
+            <div class="git-branch-badge"><i class="fa-solid fa-code-branch"></i> Branch: <strong>main*</strong></div>
+            <div class="git-changes-box">
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:6px;">CHANGES (1 modified)</div>
+              <div class="git-file-item">M main.py <span style="color:#22c55e;">+12</span> <span style="color:#ef4444;">-2</span></div>
+            </div>
+            <input type="text" class="panel-input" placeholder="Commit message (e.g. Update main.py)" style="margin-top:10px;">
+            <button class="btn-panel-btn primary" style="margin-top:8px;width:100%;">Commit & Push 🚀</button>
+          </div>
+        </div>
+
+        <!-- Panel 4: Extensions Marketplace -->
+        <div class="panel-section" id="panel-extensions" style="display:none;">
+          <div class="panel-header">EXTENSIONS MARKETPLACE</div>
+          <div class="panel-content">
+            <div class="extensions-list" id="vscode-extensions-list">
+              <!-- Dynamically populated via extensions.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: AI Copilot Assistant -->
+        <div class="panel-section" id="panel-copilot" style="display:none;">
+          <div class="panel-header">
+            <span>PULSE AI COPILOT</span>
+          </div>
+          <div class="panel-content">
+
+            <div class="copilot-hero-card">
+              <div style="font-size:1.1rem;font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:6px;"><i class="fa-solid fa-robot"></i> Pulse AI Copilot Engine</div>
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">Smart AI for Code Generation, Auto-Fixing Bugs, Mistakes Auditing & Step-by-Step Guides.</div>
+            </div>
+            <div class="copilot-quick-buttons" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
+              <button class="btn-copilot-quick" data-action="generate">🛠️ Generate Code</button>
+              <button class="btn-copilot-quick" data-action="fix">🐞 Auto-Fix Bugs</button>
+              <button class="btn-copilot-quick" data-action="mistakes">🔍 Find Mistakes</button>
+              <button class="btn-copilot-quick" data-action="guide">📖 Step Guide</button>
+              <button class="btn-copilot-quick" data-action="explain">💡 Explain Code</button>
+              <button class="btn-copilot-quick" data-action="tests">🧪 Unit Tests</button>
+            </div>
+            <textarea class="panel-input" id="copilot-custom-prompt" placeholder="Describe code to generate, bug to fix, or question to ask AI…" rows="3" style="margin-top:10px;resize:vertical;"></textarea>
+            <button class="btn-panel-btn primary" id="btn-ask-copilot" style="margin-top:8px;width:100%;">Ask AI Assistant 🚀</button>
+
+            <!-- AI Response Box Container -->
+            <div id="copilot-response-container" style="margin-top:14px;display:none;">
+              <div style="font-size:0.72rem;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;margin-bottom:6px;">AI RESPONSE & ACTION</div>
+              <div id="copilot-response-content" class="copilot-response-box" style="background:#1e1e2e;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px;font-size:0.82rem;line-height:1.5;max-height:300px;overflow-y:auto;color:#cdd6f4;"></div>
+              <div id="copilot-action-buttons" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 6: Settings & Themes -->
+        <div class="panel-section" id="panel-settings" style="display:none;">
+          <div class="panel-header">SETTINGS & THEMES</div>
+          <div class="panel-content">
+            <label class="form-label">Editor Theme</label>
+            <select class="panel-input" id="vscode-theme-select">
+              <option value="vscode-dark">Pulse Dark+ (Default)</option>
+              <option value="onedark">One Dark Pro</option>
+              <option value="cyberpunk">Cyberpunk Neon</option>
+              <option value="monokai">Monokai Pro</option>
+              <option value="dracula">Dracula Official</option>
+            </select>
+
+            <label class="form-label" style="margin-top:12px;">Prettier Code Formatting</label>
+            <button class="btn-panel-btn" id="btn-format-doc" style="width:100%;">Format Document (Prettier)</button>
+
+            <label class="form-label" style="margin-top:12px;">Insert Code Boilerplate</label>
+            <div class="snippet-buttons-grid">
+              <button class="btn-snippet" data-snippet="py-main">Python Main</button>
+              <button class="btn-snippet" data-snippet="py-class">Python Class</button>
+              <button class="btn-snippet" data-snippet="js-fetch">JS Async Fetch</button>
+              <button class="btn-snippet" data-snippet="html5">HTML5 Web Page</button>
+            </div>
           </div>
         </div>
 
       </div>
+
+      <!-- ─── VS Code Main Editor Area ────────────────────────────── -->
+      <div class="vscode-editor-workspace">
+
+        <!-- Top Studio Toolbar -->
+        <header class="studio-toolbar">
+          <div class="studio-title-block">
+            <div class="room-badge-icon" style="font-size:18px;"><i class="fa-solid fa-laptop-code"></i></div>
+            <div>
+              <div class="studio-active-file" id="studio-active-file-name">main.py</div>
+              <div style="font-size:0.65rem;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;">Collaborative Studio</div>
+            </div>
+            <span class="studio-live-badge">● LIVE SYNC</span>
+          </div>
+
+          <div class="studio-cursors-bar" id="studio-cursors-container"></div>
+
+          <div class="header-actions">
+            <select class="form-input" id="studio-lang-select" style="padding:4px 28px 4px 10px;font-size:0.75rem;width:auto;">
+              <option value="python">Python 3</option>
+              <option value="c">C</option>
+              <option value="cpp">C++</option>
+              <option value="java">Java</option>
+              <option value="javascript">JavaScript</option>
+              <option value="html">HTML5 Web</option>
+              <option value="css">CSS3</option>
+              <option value="json">JSON</option>
+            </select>
+            <button class="btn-header-action" id="btn-toggle-split-view" title="Toggle Side-by-Side Web Preview">🌐 Split Preview</button>
+            <button class="btn-header-action" id="studio-btn-back-chat">💬 Chat</button>
+            <button class="btn-header-action" id="btn-studio-download-file">💾 Export</button>
+            <button class="btn-header-action primary" id="btn-studio-run-code">▶ Run Code</button>
+          </div>
+        </header>
+
+        <!-- VS Code Multi-Tab Header Bar -->
+        <div class="vscode-tabs-bar" id="vscode-tabs-bar">
+          <!-- Dynamically populated via codeEditor.js -->
+        </div>
+
+        <!-- Editor + Terminal Container -->
+        <div class="studio-editor-container">
+
+          <div class="studio-editor-main" style="display: flex; flex-direction: column;">
+            <div class="studio-line-numbers" id="studio-line-numbers" style="display:none;"><div>1</div></div>
+            <textarea
+              class="studio-editor-textarea"
+              id="studio-editor-textarea"
+              spellcheck="false"
+              placeholder="# Write Python, JavaScript, or HTML code and collaborate in real-time…"
+            ></textarea>
+
+            <!-- Web Preview Iframe (Side-by-side) -->
+            <iframe class="studio-html-preview" id="studio-html-preview" style="display:none;"></iframe>
+          </div>
+
+          <!-- VS Code Bottom Terminal Panel -->
+          <div class="studio-bottom-panel" id="studio-bottom-panel">
+            <div class="studio-panel-tabs">
+              <button class="studio-tab-btn active" data-tab="console">Console Output</button>
+              <button class="studio-tab-btn" data-tab="stdin">Input (stdin)</button>
+              <button class="studio-tab-btn" data-tab="linter">Problems (<span id="studio-problem-count">0</span>)</button>
+              <button class="studio-tab-btn" data-tab="output">Output Logs</button>
+              <button class="studio-tab-btn" data-tab="terminal">Terminal</button>
+              <button style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.72rem;padding:4px 8px;" id="btn-studio-clear-console">Clear Output</button>
+            </div>
+
+            <textarea class="studio-stdin-input" id="studio-stdin-input" style="display:none; width:100%; height:calc(100% - 30px); background:#1e1e1e; border:none; color:#d4d4d4; padding:10px; font-family:monospace; resize:none;" placeholder="Enter your program's input here before clicking Run Code..."></textarea>
+
+            <div class="studio-console-output" id="studio-console-output">
+              <div class="console-line system">Pulse Studio Engine ready — press ▶ Run Code or shortcut to execute.</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- VS Code Bottom Status Bar -->
+        <footer class="vscode-status-bar">
+          <div class="status-left">
+            <span class="status-item"><strong style="color:#007acc;"><i class="fa-solid fa-code-branch"></i> main*</strong></span>
+            <span class="status-item" id="status-linter-count">0 ❌ 0 ⚠️</span>
+          </div>
+          <div class="status-right">
+            <span class="status-item" id="status-cursor-pos">Ln 1, Col 1</span>
+            <span class="status-item">Spaces: 4</span>
+            <span class="status-item">UTF-8</span>
+            <span class="status-item" id="status-lang-badge">Python 3</span>
+            <span class="status-item" style="color:#22c55e;">Prettier: ✓</span>
+            <span class="status-item" style="color:#38bdf8;">Copilot: Ready</span>
+          </div>
+        </footer>
+
+      </div>
+
     </main>
 
   </div>
@@ -245,46 +480,51 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- MODAL: WELCOME ENTRY PORTAL                           -->
   <!-- ═══════════════════════════════════════════════════════ -->
-  <div class="modal-overlay active" id="modal-welcome-portal">
-    <div class="modal-box" style="width:500px;padding:0;overflow:hidden;">
-
-      <!-- Hero Section -->
+  <div class="modal-overlay" id="modal-welcome-portal">
+    <div class="modal-box" style="width:460px;padding:0;overflow:hidden;">
       <div class="portal-hero">
-        <div class="portal-logo">P</div>
+        <div class="portal-logo" style="background:linear-gradient(135deg,#007acc,#a855f7);">VS</div>
         <div class="portal-title">Welcome to PulseChat</div>
-        <div class="portal-tagline">Real-time chat · Live code together · Video calls</div>
+        <div class="portal-tagline">Choose a display name to get started</div>
       </div>
 
-      <!-- Form Body -->
       <div class="portal-body">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label">Your Display Name</label>
-          <input type="text" class="form-input" id="portal-username" placeholder="e.g. Alex, Sarah, DevGroup" autocomplete="off">
-        </div>
-
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">Room Name</label>
-          <input type="text" class="form-input" id="portal-room-name" value="general" placeholder="e.g. general, python-squad, dev-room" autocomplete="off">
-        </div>
-
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">Room Password <span style="color:var(--text-dim);font-weight:400;">(leave blank for public rooms)</span></label>
-          <input type="password" class="form-input" id="portal-room-password" placeholder="Enter password if room is protected">
+          <input type="text" class="form-input" id="portal-username" placeholder="e.g. Alex, Sarah, DevKing" autocomplete="off" autofocus>
         </div>
 
         <div class="portal-error" id="portal-error-msg"></div>
 
-        <div class="portal-actions">
-          <button class="btn-portal-secondary" id="portal-btn-create-mode">➕ Create New Room</button>
-          <button class="btn-portal-primary" id="portal-btn-enter-room">Enter Room 🚀</button>
+        <div class="portal-actions" style="grid-template-columns:1fr;">
+          <button class="btn-portal-primary" id="portal-btn-enter-room">Continue →</button>
         </div>
+        <p style="text-align:center;font-size:0.75rem;color:var(--text-dim);margin-top:8px;">You can join any room or create your own after this step</p>
       </div>
-
     </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- MODAL: HOST APPROVAL (shown only on Host's tab)        -->
+  <!-- MODAL: JOIN PROTECTED ROOM (shown when joining locked) -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="modal-join-room">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-title">🔒 Protected Room</div>
+      <div class="modal-subtitle" id="join-room-modal-subtitle">Enter the password to access this room</div>
+      <div class="form-group">
+        <label class="form-label">Room Password</label>
+        <input type="password" class="form-input" id="join-room-password-input" placeholder="Enter room password…" autocomplete="off">
+      </div>
+      <div class="portal-error" id="join-room-error-msg" style="display:none;"></div>
+      <div class="modal-actions">
+        <button class="btn-header-action" id="btn-close-join-modal">Cancel</button>
+        <button class="btn-header-action primary" id="btn-confirm-join-room">Join Room 🚀</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MODAL: HOST APPROVAL                                  -->
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-host-approval">
     <div class="modal-box" style="text-align:center;width:420px;">
@@ -306,7 +546,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- MODAL: WAITING ROOM (shown on joiner's tab)            -->
+  <!-- MODAL: WAITING ROOM                                   -->
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-waiting-room">
     <div class="modal-box" style="text-align:center;width:400px;">
@@ -319,7 +559,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- WEBRTC CALL OVERLAY                                     -->
+  <!-- WEBRTC CALL OVERLAY                                   -->
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="modal-call-overlay" id="modal-call">
     <div class="call-header">
@@ -347,32 +587,41 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- MODAL: CREATE PROTECTED ROOM                            -->
+  <!-- MODAL: CREATE PROTECTED ROOM                          -->
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-create-room">
-    <div class="modal-box" style="width:440px;">
+    <div class="modal-box" style="width:460px;">
       <div class="modal-title">Create a Room 🏠</div>
-      <div class="modal-subtitle">Set up your protected space and invite your team</div>
+      <div class="modal-subtitle">Set up your workspace and invite your team</div>
 
       <div class="form-group">
         <label class="form-label">Room Name</label>
         <input type="text" class="form-input" id="input-room-name" placeholder="e.g. python-squad, project-alpha">
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Password <span style="color:var(--text-dim);font-weight:400;">(leave blank for public)</span></label>
-        <input type="password" class="form-input" id="input-room-passcode" placeholder="Set a room password…">
-      </div>
-
-      <div style="display:grid;grid-template-columns:80px 1fr;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Language Template</label>
+          <select class="form-input" id="input-room-language">
+            <option value="python">Python 3</option>
+            <option value="javascript">JavaScript</option>
+            <option value="html">HTML5 Web</option>
+          </select>
+        </div>
         <div class="form-group">
           <label class="form-label">Icon</label>
-          <input type="text" class="form-input" id="input-room-icon" value="🔒" maxlength="2">
+          <input type="text" class="form-input" id="input-room-icon" value="⚡" maxlength="2">
         </div>
-        <div class="form-group">
-          <label class="form-label">Description</label>
-          <input type="text" class="form-input" id="input-room-desc" placeholder="What's this room for?">
-        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Password <span style="color:var(--text-dim);font-weight:400;">(leave blank for public)</span></label>
+        <input type="password" class="form-input" id="input-room-passcode" placeholder="Set room password…">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" class="form-input" id="input-room-desc" placeholder="What's this room for?">
       </div>
 
       <div class="modal-actions">
@@ -383,7 +632,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- MODAL: EDIT USER PROFILE                                -->
+  <!-- MODAL: EDIT USER PROFILE                              -->
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-edit-profile">
     <div class="modal-box" style="width:400px;">
@@ -414,8 +663,17 @@
   </div>
 
   <!-- ─── Scripts ──────────────────────────────────────────────────────────── -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+
   <script src="js/voiceRecorder.js"></script>
   <script src="js/mediaCall.js"></script>
+  <script src="js/extensions.js"></script>
   <script src="js/codeEditor.js"></script>
   <script src="js/app.js"></script>
 
@@ -423,7 +681,7 @@
   <script>
     (function() {
       const container = document.getElementById('particles-container');
-      const colors = ['rgba(139,92,246,0.5)', 'rgba(6,182,212,0.4)', 'rgba(236,72,153,0.4)', 'rgba(99,102,241,0.5)'];
+      const colors = ['rgba(0,122,204,0.4)', 'rgba(168,85,247,0.4)', 'rgba(34,197,94,0.4)', 'rgba(56,189,248,0.4)'];
       for (let i = 0; i < 18; i++) {
         const p = document.createElement('div');
         p.className = 'particle';

@@ -1,8 +1,10 @@
 /**
- * Live Collaborative Code Studio Engine for PulseChat
- * Multi-user live synchronization, Pyodide Python 3 WebAssembly engine, interactive input(),
- * IDE auto-closing brackets/quotes, smart auto-indentation, and package loader
+ * Live Collaborative Code Studio & Pulse Engine for PulseChat
+ * Multi-user live synchronization, Pyodide Python 3 WebAssembly engine,
+ * Pulse Activity Bar & Side Panels, Extensions Marketplace integration,
+ * Tab Bar, Prettier formatting, Linter diagnostics, and Status bar updates.
  */
+
 class CollaborativeCodeStudio {
   constructor(socket) {
     this.socket = socket;
@@ -19,17 +21,74 @@ class CollaborativeCodeStudio {
     this.viewChat = document.querySelector('.chat-main');
     this.viewStudio = document.getElementById('code-studio-view');
     this.fileTreeList = document.getElementById('studio-file-tree');
+    this.openEditorsList = document.getElementById('studio-open-editors-list');
     this.editorTextarea = document.getElementById('studio-editor-textarea');
     this.lineNumbersCol = document.getElementById('studio-line-numbers');
+    
+    // Initialize CodeMirror if available
+    this.editor = null;
+    if (window.CodeMirror && this.editorTextarea) {
+      this.editor = CodeMirror.fromTextArea(this.editorTextarea, {
+        lineNumbers: true,
+        mode: 'python',
+        theme: 'darcula',
+        indentUnit: 4,
+        matchBrackets: true,
+        autoCloseBrackets: true
+      });
+      this.editor.setSize('100%', '100%');
+      
+      this.editor.on('change', (cm, changeObj) => {
+        if (changeObj.origin !== 'setValue') {
+          const activeFile = this.getActiveFile();
+          if (activeFile) {
+            activeFile.content = cm.getValue();
+            this.updateStatusBar();
+            const pos = cm.getCursor();
+            this.socket.emit('code_change', {
+              roomId: this.currentRoomId,
+              fileId: activeFile.id,
+              content: activeFile.content,
+              cursorLine: pos.line + 1,
+              cursorCol: pos.ch + 1
+            });
+          }
+        }
+      });
+
+      this.editor.on('cursorActivity', (cm) => {
+        const pos = cm.getCursor();
+        const activeFile = this.getActiveFile();
+        if (activeFile) {
+          this.updateStatusBar();
+          this.socket.emit('code_cursor_move', {
+            roomId: this.currentRoomId,
+            fileId: activeFile.id,
+            cursorLine: pos.line + 1,
+            cursorCol: pos.ch + 1
+          });
+        }
+      });
+    }
+
     this.activeFileNameTag = document.getElementById('studio-active-file-name');
     this.langSelect = document.getElementById('studio-lang-select');
     this.consoleOutput = document.getElementById('studio-console-output');
     this.previewFrame = document.getElementById('studio-html-preview');
     this.cursorsContainer = document.getElementById('studio-cursors-container');
     this.activeTabButtons = document.querySelectorAll('.studio-tab-btn');
+    this.tabsBar = document.getElementById('vscode-tabs-bar');
+    this.activityButtons = document.querySelectorAll('.activity-btn');
+    this.sidePanelSections = document.querySelectorAll('.panel-section');
+
+    // Extension Engine Instance
+    if (window.VSCodeExtensionEngine) {
+      this.extensions = new window.VSCodeExtensionEngine(this);
+    }
 
     this.initSocketEvents();
     this.initDOMEvents();
+    this.initVSCodeUIEvents();
     this.initPyodideEngine();
   }
 
@@ -78,18 +137,348 @@ builtins.input = custom_input
     }
   }
 
+  initVSCodeUIEvents() {
+    // Activity Bar Navigation
+    this.activityButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const panelName = btn.getAttribute('data-panel');
+        this.activityButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        this.sidePanelSections.forEach(sec => {
+          sec.style.display = 'none';
+        });
+
+        const targetPanel = document.getElementById(`panel-${panelName}`);
+        if (targetPanel) {
+          targetPanel.style.display = 'block';
+        }
+
+        if (panelName === 'extensions') {
+          this.renderExtensionsList();
+        }
+      });
+    });
+
+    // Format Document Button (Prettier)
+    document.getElementById('btn-format-doc')?.addEventListener('click', () => {
+      if (this.extensions) this.extensions.formatActiveDocument();
+    });
+
+    // Theme Selector
+    const themeSelect = document.getElementById('vscode-theme-select');
+    if (themeSelect) {
+      themeSelect.value = localStorage.getItem('vscode_theme') || 'vscode-dark';
+      themeSelect.addEventListener('change', (e) => {
+        if (this.extensions) this.extensions.applyTheme(e.target.value);
+      });
+    }
+
+    // Snippet Buttons
+    document.querySelectorAll('.btn-snippet').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const snippetKey = btn.getAttribute('data-snippet');
+        if (this.extensions) this.extensions.insertSnippet(snippetKey);
+      });
+    });
+
+    // AI Copilot Quick Actions
+    document.querySelectorAll('.btn-copilot-quick').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.getAttribute('data-action');
+        if (this.extensions) this.extensions.askAICopilot(action);
+      });
+    });
+
+    document.getElementById('btn-ask-copilot')?.addEventListener('click', () => {
+      const input = document.getElementById('copilot-custom-prompt');
+      const val = input ? input.value : '';
+      if (val.trim() && this.extensions) {
+        this.extensions.askAICopilot('custom', val);
+        input.value = '';
+      }
+    });
+
+    // Split View Toggle
+    document.getElementById('btn-toggle-split-view')?.addEventListener('click', () => {
+      if (this.previewFrame.style.display === 'none') {
+        this.previewFrame.style.display = 'block';
+        this.updateHTMLPreview();
+      } else {
+        this.previewFrame.style.display = 'none';
+      }
+    });
+
+    // ─── Search & Replace Engine ────────────────────────────────────────────────
+    this.isMatchCase = false;
+
+    // Case Sensitivity Toggle
+    document.getElementById('search-case-toggle')?.addEventListener('click', (e) => {
+      this.isMatchCase = !this.isMatchCase;
+      const btn = e.currentTarget;
+      if (this.isMatchCase) {
+        btn.style.background = 'var(--accent-violet)';
+        btn.style.color = '#ffffff';
+      } else {
+        btn.style.background = 'rgba(255,255,255,0.05)';
+        btn.style.color = 'var(--text-muted)';
+      }
+      this.performSearch();
+    });
+
+    // Real-Time Search on Input
+    document.getElementById('search-query-input')?.addEventListener('input', () => {
+      this.performSearch();
+    });
+
+    // Find Matches Button
+    document.getElementById('btn-exec-search')?.addEventListener('click', () => {
+      this.performSearch();
+    });
+
+    // Replace All Button
+    document.getElementById('btn-exec-replace')?.addEventListener('click', () => {
+      this.executeReplaceAll();
+    });
+
+    // Replace Next Button
+    document.getElementById('btn-exec-replace-next')?.addEventListener('click', () => {
+      this.executeReplaceNext();
+    });
+  }
+
+  performSearch() {
+    const qInput = document.getElementById('search-query-input');
+    const badge  = document.getElementById('search-match-badge');
+    const list   = document.getElementById('search-results-list');
+    if (!list || !qInput) return;
+
+    const q = qInput.value;
+    if (!q) {
+      list.innerHTML = '';
+      if (badge) badge.style.display = 'none';
+      return;
+    }
+
+    const activeFile = this.getActiveFile();
+    if (!activeFile) return;
+
+    const text = activeFile.content;
+    const lines = text.split('\n');
+    list.innerHTML = '';
+    let matchesCount = 0;
+    const matchCase = this.isMatchCase;
+
+    lines.forEach((lineText, idx) => {
+      const lineNum = idx + 1;
+      const haystack = matchCase ? lineText : lineText.toLowerCase();
+      const needle   = matchCase ? q : q.toLowerCase();
+
+      if (haystack.includes(needle)) {
+        matchesCount++;
+
+        // Highlight snippet match
+        const charIdx = haystack.indexOf(needle);
+        const before  = lineText.substring(0, charIdx);
+        const matchStr= lineText.substring(charIdx, charIdx + q.length);
+        const after   = lineText.substring(charIdx + q.length);
+
+        const item = document.createElement('div');
+        item.className = 'git-file-item';
+        item.style.cssText = 'padding:6px 8px;border-radius:4px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,0.03);display:flex;align-items:center;gap:6px;font-size:0.75rem;';
+        item.innerHTML = `
+          <span style="color:#007acc;font-weight:700;font-family:monospace;min-width:32px;">L${lineNum}</span>
+          <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${this.escapeHTML(before)}<strong style="background:rgba(56,189,248,0.3);color:#67e8f9;padding:0 2px;border-radius:2px;">${this.escapeHTML(matchStr)}</strong>${this.escapeHTML(after)}
+          </span>
+        `;
+
+        // Click to jump and highlight in editor
+        item.addEventListener('click', () => {
+          this.jumpToLineAndMatch(lineNum, charIdx, q.length);
+        });
+
+        list.appendChild(item);
+      }
+    });
+
+    if (badge) {
+      badge.style.display = 'inline';
+      badge.innerText = `${matchesCount} match${matchesCount !== 1 ? 'es' : ''}`;
+      badge.style.color = matchesCount > 0 ? '#38bdf8' : 'var(--text-muted)';
+    }
+
+    if (matchesCount === 0) {
+      list.innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);padding:8px 0;text-align:center;">No matches found</div>';
+    }
+  }
+
+  jumpToLineAndMatch(lineNum, charInLine, matchLength) {
+    if (this.editor) {
+      this.editor.focus();
+      this.editor.setSelection({line: lineNum - 1, ch: charInLine}, {line: lineNum - 1, ch: charInLine + matchLength});
+      this.editor.scrollIntoView({line: lineNum - 1, ch: charInLine}, 100);
+      return;
+    }
+    if (!this.editorTextarea) return;
+    const text = this.editorTextarea.value;
+    const lines = text.split('\n');
+
+    let startIdx = 0;
+    for (let i = 0; i < lineNum - 1 && i < lines.length; i++) {
+      startIdx += lines[i].length + 1; // +1 for newline
+    }
+
+    const matchStart = startIdx + charInLine;
+    const matchEnd   = matchStart + matchLength;
+
+    this.editorTextarea.focus();
+    this.editorTextarea.setSelectionRange(matchStart, matchEnd);
+
+    // Calculate approximate scroll position
+    const lineHeight = 20;
+    this.editorTextarea.scrollTop = Math.max(0, (lineNum - 5) * lineHeight);
+    this.appendConsoleLine(`🔍 Jumped to Line ${lineNum}, Col ${charInLine + 1}`, 'system');
+  }
+
+  executeReplaceAll() {
+    const qInput = document.getElementById('search-query-input');
+    const rInput = document.getElementById('replace-query-input');
+    if (!qInput || !this.editorTextarea) return;
+
+    const q = qInput.value;
+    const r = rInput ? rInput.value : '';
+
+    if (!q) {
+      this.appendConsoleLine('⚠️ Search query required for Replace All', 'warning');
+      return;
+    }
+
+    const activeFile = this.getActiveFile();
+    if (!activeFile) return;
+
+    const text = this.editor ? this.editor.getValue() : this.editorTextarea.value;
+    let newText = '';
+    let count = 0;
+
+    if (this.isMatchCase) {
+      const parts = text.split(q);
+      count = parts.length - 1;
+      newText = parts.join(r);
+    } else {
+      const regex = new RegExp(this.escapeRegExp(q), 'gi');
+      const matches = text.match(regex);
+      count = matches ? matches.length : 0;
+      newText = text.replace(regex, r);
+    }
+
+    if (count > 0) {
+      if (this.editor) {
+        this.editor.setValue(newText);
+      } else {
+        this.editorTextarea.value = newText;
+      }
+      activeFile.content = newText;
+      this.updateLineNumbers();
+      this.broadcastCodeChange();
+      this.performSearch();
+      this.appendConsoleLine(`⚡ Replaced ${count} occurrence${count !== 1 ? 's' : ''} of "${q}" with "${r}"`, 'system');
+    } else {
+      this.appendConsoleLine(`⚠️ No occurrences of "${q}" found to replace.`, 'warning');
+    }
+  }
+
+  executeReplaceNext() {
+    const qInput = document.getElementById('search-query-input');
+    const rInput = document.getElementById('replace-query-input');
+    if (!qInput || !this.editorTextarea) return;
+
+    const q = qInput.value;
+    const r = rInput ? rInput.value : '';
+    if (!q) return;
+
+    const text = this.editorTextarea.value;
+    const selStart = this.editorTextarea.selectionStart;
+    const needle   = this.isMatchCase ? q : q.toLowerCase();
+    const haystack = this.isMatchCase ? text : text.toLowerCase();
+
+    let nextIdx = haystack.indexOf(needle, selStart);
+    if (nextIdx === -1) {
+      // Wrap around from beginning
+      nextIdx = haystack.indexOf(needle, 0);
+    }
+
+    if (nextIdx !== -1) {
+      const newText = text.substring(0, nextIdx) + r + text.substring(nextIdx + q.length);
+      this.editorTextarea.value = newText;
+      this.getActiveFile().content = newText;
+      this.updateLineNumbers();
+      this.broadcastCodeChange();
+
+      // Highlight replaced string
+      this.editorTextarea.focus();
+      this.editorTextarea.setSelectionRange(nextIdx, nextIdx + r.length);
+      this.performSearch();
+      this.appendConsoleLine(`⚡ Replaced match at index ${nextIdx} with "${r}"`, 'system');
+    } else {
+      this.appendConsoleLine(`⚠️ No match found for "${q}"`, 'warning');
+    }
+  }
+
+  escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  renderExtensionsList() {
+    const list = document.getElementById('vscode-extensions-list');
+    if (!list || !this.extensions) return;
+    list.innerHTML = '';
+
+    this.extensions.installedExtensions.forEach((ext) => {
+      const card = document.createElement('div');
+      card.className = 'extension-card';
+      card.innerHTML = `
+        <div class="ext-title">
+          <span>${ext.icon} ${ext.name}</span>
+          <span style="font-size:0.65rem;color:var(--text-muted);">${ext.version}</span>
+        </div>
+        <div class="ext-desc">${ext.desc}</div>
+        <div class="ext-footer">
+          <span style="font-size:0.68rem;color:var(--text-dim);">by ${ext.author}</span>
+          <button class="btn-toggle-ext ${ext.enabled ? '' : 'disabled'}" data-ext="${ext.id}">
+            ${ext.enabled ? 'Enabled ✓' : 'Disabled ✗'}
+          </button>
+        </div>
+      `;
+
+      card.querySelector('.btn-toggle-ext').addEventListener('click', () => {
+        const isEnabled = this.extensions.toggleExtension(ext.id);
+        this.renderExtensionsList();
+      });
+
+      list.appendChild(card);
+    });
+  }
+
   initSocketEvents() {
     this.socket.on('code_updated', ({ fileId, content, user, cursorLine, cursorCol }) => {
       const activeFile = this.getActiveFile();
       if (activeFile && activeFile.id === fileId) {
-        const start = this.editorTextarea.selectionStart;
-        const end = this.editorTextarea.selectionEnd;
-        
         activeFile.content = content;
-        this.editorTextarea.value = content;
-        
-        this.editorTextarea.setSelectionRange(start, end);
+        if (this.editor) {
+          const cursor = this.editor.getCursor();
+          if (this.editor.getValue() !== content) {
+            this.editor.setValue(content);
+            this.editor.setCursor(cursor);
+          }
+        } else {
+          const start = this.editorTextarea.selectionStart;
+          const end = this.editorTextarea.selectionEnd;
+          this.editorTextarea.value = content;
+          this.editorTextarea.setSelectionRange(start, end);
+        }
         this.updateLineNumbers();
+        this.updateStatusBar();
       }
 
       if (user) {
@@ -108,12 +497,14 @@ builtins.input = custom_input
     this.socket.on('code_file_created', ({ workspace, newFile }) => {
       this.workspace = workspace;
       this.renderFileTree();
+      this.renderTabsBar();
       this.loadActiveFile();
     });
 
     this.socket.on('code_active_file_changed', ({ fileId }) => {
       this.workspace.activeFileId = fileId;
       this.renderFileTree();
+      this.renderTabsBar();
       this.loadActiveFile();
     });
   }
@@ -121,13 +512,16 @@ builtins.input = custom_input
   initDOMEvents() {
     if (!this.editorTextarea) return;
 
-    // Real-Time Keystroke Sync
-    this.editorTextarea.addEventListener('input', () => {
+    // We only attach these if CodeMirror is not present
+    if (!this.editor) {
+      // Real-Time Keystroke Sync
+      this.editorTextarea.addEventListener('input', () => {
       const activeFile = this.getActiveFile();
       if (!activeFile) return;
 
       activeFile.content = this.editorTextarea.value;
       this.updateLineNumbers();
+      this.updateStatusBar();
 
       const { line, col } = this.getCursorPosition();
 
@@ -140,17 +534,18 @@ builtins.input = custom_input
       });
     });
 
-    this.editorTextarea.addEventListener('keyup', () => this.broadcastCursorPosition());
-    this.editorTextarea.addEventListener('click', () => this.broadcastCursorPosition());
+    this.editorTextarea.addEventListener('keyup', () => {
+      this.broadcastCursorPosition();
+      this.updateStatusBar();
+    });
     
-    // IDE Keydown Enhancements: Auto-closing Brackets, Quotes, and Smart Indentation
-    const autoPairs = {
-      '(': ')',
-      '[': ']',
-      '{': '}',
-      '"': '"',
-      "'": "'"
-    };
+    this.editorTextarea.addEventListener('click', () => {
+      this.broadcastCursorPosition();
+      this.updateStatusBar();
+    });
+
+    // Auto-closing Brackets & Quotes
+    const autoPairs = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
 
     this.editorTextarea.addEventListener('keydown', (e) => {
       const start = this.editorTextarea.selectionStart;
@@ -158,9 +553,7 @@ builtins.input = custom_input
       const val = this.editorTextarea.value;
       const char = e.key;
 
-      // 1. Auto-close brackets and quotes
       if (autoPairs[char]) {
-        // If text is highlighted, wrap selected text
         if (start !== end) {
           e.preventDefault();
           const selectedText = val.substring(start, end);
@@ -171,7 +564,6 @@ builtins.input = custom_input
           return;
         }
 
-        // Skip duplicate quote/bracket if cursor is right before it
         if ((char === '"' || char === "'") && val[start] === char) {
           e.preventDefault();
           this.editorTextarea.setSelectionRange(start + 1, start + 1);
@@ -186,21 +578,18 @@ builtins.input = custom_input
         return;
       }
 
-      // 2. Overwrite closing bracket if typed directly
       if ([')', ']', '}'].includes(char) && val[start] === char && start === end) {
         e.preventDefault();
         this.editorTextarea.setSelectionRange(start + 1, start + 1);
         return;
       }
 
-      // 3. Smart Enter Auto-Indentation
       if (e.key === 'Enter') {
         const lineStart = val.lastIndexOf('\n', start - 1) + 1;
         const currentLine = val.substring(lineStart, start);
         const indentMatch = currentLine.match(/^(\s*)/);
         let indent = indentMatch ? indentMatch[1] : '';
 
-        // Increase indent level after {, (, [, or :
         if (/[{(\[::]\s*$/.test(currentLine)) {
           indent += '  ';
         }
@@ -212,7 +601,6 @@ builtins.input = custom_input
         return;
       }
 
-      // 4. Tab key spacing
       if (e.key === 'Tab') {
         e.preventDefault();
         this.editorTextarea.value = val.substring(0, start) + '  ' + val.substring(end);
@@ -222,12 +610,13 @@ builtins.input = custom_input
     });
 
     this.editorTextarea.addEventListener('scroll', () => {
-      this.lineNumbersCol.scrollTop = this.editorTextarea.scrollTop;
+      if (this.lineNumbersCol) this.lineNumbersCol.scrollTop = this.editorTextarea.scrollTop;
     });
+    } // End of non-CodeMirror events
 
-    // Create New File Button
+    // Create New File
     document.getElementById('btn-studio-new-file')?.addEventListener('click', () => {
-      const fileName = prompt('Enter new file name (e.g. script.py, index.js, styles.css):', 'first.py');
+      const fileName = prompt('Enter new file name (e.g. script.py, index.js, styles.css):', 'app.py');
       if (fileName) {
         const ext = fileName.split('.').pop().toLowerCase();
         let lang = 'javascript';
@@ -249,6 +638,7 @@ builtins.input = custom_input
       const activeFile = this.getActiveFile();
       if (activeFile) {
         activeFile.language = this.langSelect.value;
+        this.updateStatusBar();
       }
     });
 
@@ -257,12 +647,12 @@ builtins.input = custom_input
       this.executeCode();
     });
 
-    // Clear Console Output
+    // Clear Console
     document.getElementById('btn-studio-clear-console')?.addEventListener('click', () => {
-      this.consoleOutput.innerHTML = '<div class="console-line system">Console cleared.</div>';
+      this.consoleOutput.innerHTML = '<div class="console-line system">Console output cleared.</div>';
     });
 
-    // Console / Preview Tabs Switch
+    // Console / Preview Tabs
     this.activeTabButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
         const tab = btn.getAttribute('data-tab');
@@ -272,15 +662,26 @@ builtins.input = custom_input
         if (tab === 'console') {
           this.consoleOutput.style.display = 'block';
           this.previewFrame.style.display = 'none';
+          if(document.getElementById('studio-stdin-input')) document.getElementById('studio-stdin-input').style.display = 'none';
+        } else if (tab === 'stdin') {
+          this.consoleOutput.style.display = 'none';
+          this.previewFrame.style.display = 'none';
+          if(document.getElementById('studio-stdin-input')) document.getElementById('studio-stdin-input').style.display = 'block';
+        } else if (tab === 'linter') {
+          this.consoleOutput.style.display = 'block';
+          this.previewFrame.style.display = 'none';
+          if(document.getElementById('studio-stdin-input')) document.getElementById('studio-stdin-input').style.display = 'none';
+          this.runLinterCheck();
         } else {
           this.consoleOutput.style.display = 'none';
           this.previewFrame.style.display = 'block';
+          if(document.getElementById('studio-stdin-input')) document.getElementById('studio-stdin-input').style.display = 'none';
           this.updateHTMLPreview();
         }
       });
     });
 
-    // Download File Button
+    // Export File Button
     document.getElementById('btn-studio-download-file')?.addEventListener('click', () => {
       const activeFile = this.getActiveFile();
       if (!activeFile) return;
@@ -296,6 +697,7 @@ builtins.input = custom_input
     this.workspace = workspace;
     this.currentRoomId = roomId;
     this.renderFileTree();
+    this.renderTabsBar();
     this.loadActiveFile();
   }
 
@@ -307,7 +709,24 @@ builtins.input = custom_input
     const file = this.getActiveFile();
     if (!file) return;
 
-    this.editorTextarea.value = file.content || '';
+    if (this.editor) {
+      if (this.editor.getValue() !== (file.content || '')) {
+        this.editor.setValue(file.content || '');
+      }
+      
+      let mode = 'javascript';
+      if (file.name.endsWith('.py')) mode = 'python';
+      else if (file.name.endsWith('.html')) mode = 'htmlmixed';
+      else if (file.name.endsWith('.css')) mode = 'css';
+      else if (file.name.endsWith('.json')) mode = 'javascript';
+      else if (file.name.endsWith('.c')) mode = 'text/x-csrc';
+      else if (file.name.endsWith('.cpp')) mode = 'text/x-c++src';
+      else if (file.name.endsWith('.java')) mode = 'text/x-java';
+      this.editor.setOption('mode', mode);
+    } else {
+      this.editorTextarea.value = file.content || '';
+    }
+    
     this.activeFileNameTag.innerText = file.name;
     
     if (this.langSelect) {
@@ -315,27 +734,68 @@ builtins.input = custom_input
       else if (file.name.endsWith('.html')) this.langSelect.value = 'html';
       else if (file.name.endsWith('.css')) this.langSelect.value = 'css';
       else if (file.name.endsWith('.json')) this.langSelect.value = 'json';
+      else if (file.name.endsWith('.c')) this.langSelect.value = 'c';
+      else if (file.name.endsWith('.cpp')) this.langSelect.value = 'cpp';
+      else if (file.name.endsWith('.java')) this.langSelect.value = 'java';
       else this.langSelect.value = file.language || 'javascript';
     }
 
     this.updateLineNumbers();
     this.updateHTMLPreview();
+    this.updateStatusBar();
+  }
+
+  renderTabsBar() {
+    if (!this.tabsBar) return;
+    this.tabsBar.innerHTML = '';
+
+    this.workspace.files.forEach((file) => {
+      const tab = document.createElement('div');
+      const isActive = file.id === this.workspace.activeFileId;
+      tab.className = `vscode-tab-item ${isActive ? 'active' : ''}`;
+      
+      let fileIcon = '<i class="fa-solid fa-file"></i>';
+      if (file.name.endsWith('.py')) fileIcon = '<i class="fa-brands fa-python" style="color:#38bdf8;"></i>';
+      if (file.name.endsWith('.js')) fileIcon = '<i class="fa-brands fa-js" style="color:#fde047;"></i>';
+      if (file.name.endsWith('.css')) fileIcon = '<i class="fa-brands fa-css3-alt" style="color:#60a5fa;"></i>';
+      if (file.name.endsWith('.html')) fileIcon = '<i class="fa-brands fa-html5" style="color:#f97316;"></i>';
+      if (file.name.endsWith('.c') || file.name.endsWith('.cpp')) fileIcon = '<i class="fa-solid fa-c" style="color:#3b82f6;"></i>';
+      if (file.name.endsWith('.java')) fileIcon = '<i class="fa-brands fa-java" style="color:#f43f5e;"></i>';
+
+      tab.innerHTML = `
+        <span>${fileIcon}</span>
+        <span>${file.name}</span>
+        <span class="tab-close-btn">×</span>
+      `;
+
+      tab.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('tab-close-btn') && file.id !== this.workspace.activeFileId) {
+          this.socket.emit('code_switch_file', {
+            roomId: this.currentRoomId,
+            fileId: file.id
+          });
+        }
+      });
+
+      this.tabsBar.appendChild(tab);
+    });
   }
 
   renderFileTree() {
     if (!this.fileTreeList) return;
     this.fileTreeList.innerHTML = '';
+    if (this.openEditorsList) this.openEditorsList.innerHTML = '';
 
     this.workspace.files.forEach((file) => {
       const li = document.createElement('li');
       const isActive = file.id === this.workspace.activeFileId;
       li.className = `studio-file-item ${isActive ? 'active' : ''}`;
       
-      let fileIcon = '📄';
-      if (file.name.endsWith('.py')) fileIcon = '🐍';
-      if (file.name.endsWith('.js')) fileIcon = '🟨';
-      if (file.name.endsWith('.css')) fileIcon = '🟦';
-      if (file.name.endsWith('.html')) fileIcon = '🟧';
+      let fileIcon = '<i class="fa-solid fa-file"></i>';
+      if (file.name.endsWith('.py')) fileIcon = '<i class="fa-brands fa-python" style="color:#38bdf8;"></i>';
+      if (file.name.endsWith('.js')) fileIcon = '<i class="fa-brands fa-js" style="color:#fde047;"></i>';
+      if (file.name.endsWith('.css')) fileIcon = '<i class="fa-brands fa-css3-alt" style="color:#60a5fa;"></i>';
+      if (file.name.endsWith('.html')) fileIcon = '<i class="fa-brands fa-html5" style="color:#f97316;"></i>';
 
       li.innerHTML = `
         <span class="file-icon">${fileIcon}</span>
@@ -352,11 +812,21 @@ builtins.input = custom_input
       });
 
       this.fileTreeList.appendChild(li);
+
+      if (this.openEditorsList) {
+        const edLi = li.cloneNode(true);
+        edLi.addEventListener('click', () => {
+          if (file.id !== this.workspace.activeFileId) {
+            this.socket.emit('code_switch_file', { roomId: this.currentRoomId, fileId: file.id });
+          }
+        });
+        this.openEditorsList.appendChild(edLi);
+      }
     });
   }
 
   updateLineNumbers() {
-    if (!this.lineNumbersCol) return;
+    if (!this.lineNumbersCol || this.editor) return; // CodeMirror handles line numbers
     const linesCount = (this.editorTextarea.value.match(/\n/g) || []).length + 1;
     let numbersHTML = '';
     for (let i = 1; i <= linesCount; i++) {
@@ -365,7 +835,43 @@ builtins.input = custom_input
     this.lineNumbersCol.innerHTML = numbersHTML;
   }
 
+  updateStatusBar() {
+    const { line, col } = this.getCursorPosition();
+    const posTag = document.getElementById('status-cursor-pos');
+    if (posTag) posTag.innerText = `Ln ${line}, Col ${col}`;
+
+    const activeFile = this.getActiveFile();
+    const langTag = document.getElementById('status-lang-badge');
+    if (langTag && activeFile) {
+      langTag.innerText = activeFile.language.toUpperCase();
+    }
+  }
+
+  runLinterCheck() {
+    if (!this.extensions) return;
+    const problems = this.extensions.runLinterCheck();
+    const countTag = document.getElementById('status-linter-count');
+
+    const errCount = problems.filter(p => p.type === 'error').length;
+    const warnCount = problems.filter(p => p.type === 'warning').length;
+
+    if (countTag) countTag.innerText = `${errCount} ❌ ${warnCount} ⚠️`;
+
+    this.consoleOutput.innerHTML = `<div class="console-line system">🚨 Linter Diagnostics Scan Results (${problems.length} items found):</div>`;
+    if (problems.length === 0) {
+      this.appendConsoleLine('✨ No syntax errors or warnings detected in file!', 'system');
+    } else {
+      problems.forEach(p => {
+        this.appendConsoleLine(`Line ${p.line}: [${p.type.toUpperCase()}] ${p.message}`, p.type === 'error' ? 'error' : 'system');
+      });
+    }
+  }
+
   getCursorPosition() {
+    if (this.editor) {
+      const pos = this.editor.getCursor();
+      return { line: pos.line + 1, col: pos.ch + 1 };
+    }
     const pos = this.editorTextarea.selectionStart;
     const lines = this.editorTextarea.value.substring(0, pos).split('\n');
     return {
@@ -381,6 +887,19 @@ builtins.input = custom_input
     this.socket.emit('code_cursor_move', {
       roomId: this.currentRoomId,
       fileId: activeFile.id,
+      cursorLine: line,
+      cursorCol: col
+    });
+  }
+
+  broadcastCodeChange() {
+    const activeFile = this.getActiveFile();
+    if (!activeFile) return;
+    const { line, col } = this.getCursorPosition();
+    this.socket.emit('code_change', {
+      roomId: this.currentRoomId,
+      fileId: activeFile.id,
+      content: activeFile.content,
       cursorLine: line,
       cursorCol: col
     });
@@ -413,7 +932,6 @@ builtins.input = custom_input
     const activeFile = this.getActiveFile();
     if (!activeFile) return;
 
-    // Switch to Console tab
     const consoleBtn = document.querySelector('[data-tab="console"]');
     if (consoleBtn) consoleBtn.click();
 
@@ -426,9 +944,49 @@ builtins.input = custom_input
       return;
     }
 
+    const isC = activeFile.name.endsWith('.c') || activeFile.language === 'c';
+    const isCpp = activeFile.name.endsWith('.cpp') || activeFile.language === 'cpp';
+    const isJava = activeFile.name.endsWith('.java') || activeFile.language === 'java';
+
+    const stdinInputNode = document.getElementById('studio-stdin-input');
+    const stdinVal = stdinInputNode ? stdinInputNode.value : '';
+
+    if (isC || isCpp || isJava) {
+      this.appendConsoleLine(`⏳ Compiling and running via Cloud Engine...`, 'system');
+      try {
+        const compiler = isC ? 'gcc-head-c' : (isCpp ? 'gcc-head' : 'openjdk-jdk-22+36');
+        const res = await fetch("https://wandbox.org/api/compile.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            compiler: compiler,
+            code: activeFile.content,
+            stdin: stdinVal
+          })
+        });
+        const data = await res.json();
+        if (data.compiler_error && data.compiler_error.trim()) {
+          this.appendConsoleLine(data.compiler_error, 'error');
+        }
+        if (data.program_error && data.program_error.trim()) {
+          this.appendConsoleLine(data.program_error, 'error');
+        }
+        if (data.program_output && data.program_output.trim()) {
+          this.appendConsoleLine(data.program_output, 'return');
+        }
+        if (data.status !== "0" && !data.program_error && !data.compiler_error && !data.program_output) {
+          this.appendConsoleLine('Execution failed (Status ' + data.status + ')', 'error');
+        } else if (!data.program_output && !data.compiler_error && !data.program_error) {
+          this.appendConsoleLine('Program ran successfully (No output)', 'system');
+        }
+      } catch (err) {
+        this.appendConsoleLine(`Execution Error: ${err.message}`, 'error');
+      }
+      return;
+    }
+
     const isPython = activeFile.name.endsWith('.py') || activeFile.language === 'python';
 
-    // 🐍 Python Execution via Pyodide Engine
     if (isPython) {
       if (!this.pyodide) {
         if (this.isPyodideLoading) {
@@ -440,6 +998,12 @@ builtins.input = custom_input
 
       try {
         await this.pyodide.loadPackagesFromImports(activeFile.content);
+
+        await this.pyodide.runPythonAsync(`
+import sys
+import io
+sys.stdin = io.StringIO(${JSON.stringify(stdinVal)})
+        `);
 
         let outputBuffer = '';
         this.pyodide.setStdout({
@@ -471,7 +1035,6 @@ builtins.input = custom_input
       return;
     }
 
-    // 🟨 JavaScript Execution
     if (activeFile.name.endsWith('.js') || activeFile.language === 'javascript') {
       const logs = [];
       const originalLog = console.log;
