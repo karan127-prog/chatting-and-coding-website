@@ -8,7 +8,7 @@
       alert("JS ERROR: " + message + " at " + source + ":" + lineno);
     };
   </script>
-  <title>PulseChat — Code Studio & Front Page Portal</title>
+  <title>CodeCanvas — Code Studio & Front Page Portal</title>
   <meta name="description" content="Next-gen real-time group chat, Code Studio editor with Extensions Marketplace, SQLite persistence, and WebRTC video calling.">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -39,7 +39,7 @@
     <!-- AUTHENTICATION VIEW -->
     <div id="auth-view" style="display:flex; position:absolute; inset:0; z-index:9999; background: radial-gradient(circle at 50% 50%, rgba(15,23,42,0.9), #0f172a); justify-content:center; align-items:center;">
       <div class="modal-box" style="width:400px; padding:40px; text-align:center;">
-        <div class="modal-title" style="font-size:2rem; margin-bottom:10px;">Welcome to PulseChat</div>
+        <div class="modal-title" style="font-size:2rem; margin-bottom:10px;">Welcome to CodeCanvas</div>
         <div class="modal-subtitle" style="margin-bottom:30px;">Login or sign up to access your environments</div>
         
         <input type="text" id="auth-username" class="form-input" placeholder="Username" style="margin-bottom:15px; width:100%; box-sizing:border-box;">
@@ -66,7 +66,7 @@
             <div style="width:12px; height:12px; border-radius:50%; background:#27C93F; box-shadow: 0 0 1px rgba(0,0,0,0.5);"></div>
           </div>
           <div class="brand-text">
-            <div class="brand-title" style="font-size:1.15rem;">PulseChat <span class="badge-pro">STUDIO</span></div>
+            <div class="brand-title" style="font-size:1.15rem;">CodeCanvas <span class="badge-pro">STUDIO</span></div>
             <div class="brand-subtitle">Real-time Code & Chat Ecosystem</div>
           </div>
         </div>
@@ -116,7 +116,7 @@
       <section class="lobby-hero">
         <h1 class="hero-title">Collaborate, Code & Chat in <span class="highlight-text">Real-Time</span></h1>
         <p class="hero-subtitle">
-          Supercharged with a full Pulse IDE canvas, Extensions Marketplace (Prettier, ESLint, AI Copilot, Live Web Preview), SQLite persistent database, WebRTC video calling, and protected rooms.
+          Supercharged with a full CodeCanvas IDE, Extensions Marketplace (Prettier, ESLint, AI Copilot, Live Web Preview), SQLite persistent database, WebRTC video calling, and protected rooms.
         </p>
 
         <!-- Room Search & Filter Bar -->
@@ -167,7 +167,7 @@
         </div>
         <button class="btn-back-lobby" id="btn-back-to-lobby" title="Back to Main Lobby" style="margin-right:10px;">🏠</button>
         <div class="brand-text">
-          <div class="brand-title">PulseChat</div>
+          <div class="brand-title">CodeCanvas</div>
           <div class="brand-subtitle">Collaborative Workspace</div>
         </div>
       </div>
@@ -227,7 +227,7 @@
 
         <div class="mode-toggle-container">
           <button class="btn-mode-tab active" id="btn-mode-chat">💬 Chat</button>
-          <button class="btn-mode-tab" id="btn-mode-code">👨‍💻 Pulse Studio</button>
+          <button class="btn-mode-tab" id="btn-mode-code">👨‍💻 CodeCanvas Studio</button>
           <button class="btn-mode-tab" id="btn-mode-whiteboard">🖌️ Whiteboard</button>
         </div>
 
@@ -325,7 +325,7 @@
         <button class="activity-btn" data-panel="search" title="Search & Replace (Ctrl+Shift+F)"><i class="fa-solid fa-magnifying-glass"></i></button>
         <button class="activity-btn" data-panel="source-control" title="Source Control (Git)"><i class="fa-solid fa-code-branch"></i></button>
         <button class="activity-btn" data-panel="extensions" title="Extensions Marketplace"><i class="fa-solid fa-cubes"></i></button>
-        <button class="activity-btn" data-panel="copilot" title="Pulse AI Copilot"><i class="fa-solid fa-robot"></i></button>
+        <button class="activity-btn" data-panel="copilot" title="CodeCanvas AI Copilot"><i class="fa-solid fa-robot"></i></button>
         <button class="activity-btn" data-panel="whiteboard" title="Collaborative Whiteboard"><i class="fa-solid fa-paintbrush"></i></button>
         <button class="activity-btn" data-panel="settings" title="Settings & Themes" style="margin-top:auto;"><i class="fa-solid fa-gear"></i></button>
       </div>
@@ -395,12 +395,12 @@
         <!-- Panel 5: AI Copilot Assistant -->
         <div class="panel-section" id="panel-copilot" style="display:none;">
           <div class="panel-header">
-            <span>PULSE AI COPILOT</span>
+            <span>CODECANVAS AI COPILOT</span>
           </div>
           <div class="panel-content">
 
             <div class="copilot-hero-card">
-              <div style="font-size:1.1rem;font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:6px;"><i class="fa-solid fa-robot"></i> Pulse AI Copilot Engine</div>
+              <div style="font-size:1.1rem;font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:6px;"><i class="fa-solid fa-robot"></i> CodeCanvas AI Copilot Engine</div>
               <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">Smart AI for Code Generation, Auto-Fixing Bugs, Mistakes Auditing & Step-by-Step Guides.</div>
             </div>
             <div class="copilot-quick-buttons" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
@@ -429,7 +429,7 @@
           <div class="panel-content">
             <label class="form-label">Editor Theme</label>
             <select class="panel-input" id="vscode-theme-select">
-              <option value="vscode-dark">Pulse Dark+ (Default)</option>
+              <option value="vscode-dark">CodeCanvas Dark+ (Default)</option>
               <option value="onedark">One Dark Pro</option>
               <option value="cyberpunk">Cyberpunk Neon</option>
               <option value="monokai">Monokai Pro</option>
@@ -522,7 +522,7 @@
             <textarea class="studio-stdin-input" id="studio-stdin-input" style="display:none; width:100%; height:calc(100% - 30px); background:#1e1e1e; border:none; color:#d4d4d4; padding:10px; font-family:monospace; resize:none;" placeholder="Enter your program's input here before clicking Run Code..."></textarea>
 
             <div class="studio-console-output" id="studio-console-output">
-              <div class="console-line system">Pulse Studio Engine ready — press ▶ Run Code or shortcut to execute.</div>
+              <div class="console-line system">CodeCanvas Studio Engine ready — press ▶ Run Code or shortcut to execute.</div>
             </div>
           </div>
 
@@ -707,7 +707,7 @@
   <div class="modal-overlay" id="modal-edit-profile">
     <div class="modal-box" style="width:400px;">
       <div class="modal-title">Edit Profile ⚙️</div>
-      <div class="modal-subtitle">Customize how others see you in PulseChat</div>
+      <div class="modal-subtitle">Customize how others see you in CodeCanvas</div>
 
       <div class="form-group">
         <label class="form-label">Display Name</label>

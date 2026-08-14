@@ -277,17 +277,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Join Room Flow
   const handleJoinRoomClick = room => {
-    requireName(() => {
-      if (room.hasPassword) {
-        _pendingJoinRoom=room;
-        const sub=document.getElementById('join-room-modal-subtitle'); if(sub) sub.innerText='Enter password for #'+room.name;
-        const pw=document.getElementById('join-room-password-input');  if(pw) pw.value='';
-        const err=document.getElementById('join-room-error-msg');      if(err) err.style.display='none';
-        openModal(modalJoinRoom); setTimeout(()=>pw&&pw.focus(),100);
-      } else {
-        socket.emit('request_join_room', { roomId: room.id, password: '' });
-      }
-    });
+    if (room.hasPassword) {
+      _pendingJoinRoom=room;
+      const sub=document.getElementById('join-room-modal-subtitle'); if(sub) sub.innerText='Enter password for #'+room.name;
+      const pw=document.getElementById('join-room-password-input');  if(pw) pw.value='';
+      const err=document.getElementById('join-room-error-msg');      if(err) err.style.display='none';
+      openModal(modalJoinRoom); setTimeout(()=>pw&&pw.focus(),100);
+    } else {
+      socket.emit('request_join_room', { roomId: room.id, password: '' });
+    }
   };
   document.getElementById('btn-confirm-join-room')?.addEventListener('click', () => {
     if(!_pendingJoinRoom) return;
@@ -302,8 +300,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.filter-pills .pill').forEach(pill => {
     pill.addEventListener('click', ()=>{ document.querySelectorAll('.filter-pills .pill').forEach(p=>p.classList.remove('active')); pill.classList.add('active'); fetchAndRenderLobbyRooms(); });
   });
-  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ requireName(()=>{ socket.emit('request_join_room',{roomId:'general',password:''}); setTimeout(()=>switchViewMode('code'),400); }); });
-  document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>requireName(()=>openModal(modalCreateRoom)));
+  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ socket.emit('request_join_room',{roomId:'general',password:''}); setTimeout(()=>switchViewMode('code'),400); });
+  document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>openModal(modalCreateRoom));
 
   // Socket
   socket.on('connect', ()=>{ 
@@ -468,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-code-modal')?.addEventListener('click', ()=>{ if(currentRoom) switchViewMode('code'); else showToast('Join a room first','info'); });
 
   // Create Room Modal
-  document.getElementById('btn-create-room-modal')?.addEventListener('click', ()=>requireName(()=>openModal(modalCreateRoom)));
+  document.getElementById('btn-create-room-modal')?.addEventListener('click', ()=>openModal(modalCreateRoom));
   document.getElementById('btn-close-room-modal')?.addEventListener('click', ()=>closeModal(modalCreateRoom));
   document.getElementById('btn-confirm-create-room')?.addEventListener('click', ()=>{
     console.log("Create room button clicked!");
@@ -480,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(!name){showToast('Please enter a room name','error');return;}
     const payload={name,password:document.getElementById('input-room-passcode')?.value.trim()||'',icon:document.getElementById('input-room-icon')?.value.trim()||'⚡',description:document.getElementById('input-room-desc')?.value.trim()||'',language:document.getElementById('input-room-language')?.value||'python',tags:[document.getElementById('input-room-language')?.value||'python','code']};
     console.log("Emitting create_room with payload:", payload);
-    if(socket._registered) socket.emit('create_room',payload); else{socket._pendingAction=()=>socket.emit('create_room',payload);requireName(()=>{});}
+    socket.emit('create_room',payload);
     closeModal(modalCreateRoom); ['input-room-name','input-room-passcode','input-room-desc'].forEach(id=>{const el=document.getElementById(id);if(el) el.value='';});
   });
 
