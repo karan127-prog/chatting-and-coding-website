@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const dbPath = path.join(__dirname, 'database.sqlite');
 const jsonDbPath = path.join(__dirname, 'db_fallback.json');
@@ -10,6 +11,7 @@ let useJsonFallback = false;
 
 // Initial state for fallback DB
 let jsonStore = {
+  users: [],
   rooms: {
     general: { id: 'general', name: 'general', description: 'Global public lounge for everyone', icon: '💬', password: '', host_username: 'System', tags: 'general,public', language: 'python', created_at: new Date().toISOString() },
     tech: { id: 'tech', name: 'tech-lounge', description: 'Code, tech & developer discussions', icon: '⚡', password: '', host_username: 'System', tags: 'code,tech,python', language: 'python', created_at: new Date().toISOString() },
@@ -81,6 +83,14 @@ function createTables() {
   if (useJsonFallback || !db) return;
 
   db.serialize(() => {
+    // Users Table
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT
+    )`);
+
     // Rooms Table
     db.run(`CREATE TABLE IF NOT EXISTS rooms (
       id TEXT PRIMARY KEY,
@@ -146,6 +156,49 @@ function createTables() {
 // Database API Methods
 const DatabaseAPI = {
   init: initDB,
+
+  // Auth
+  createUser: (username, password) => {
+    return new Promise((resolve, reject) => {
+      const id = 'user-' + Date.now();
+      const hash = crypto.createHash('sha256').update(password).digest('hex');
+      const createdAt = new Date().toISOString();
+
+      if (useJsonFallback || !db) {
+        if (jsonStore.users.find(u => u.username === username)) {
+          return reject(new Error('Username already exists'));
+        }
+        jsonStore.users.push({ id, username, password_hash: hash, created_at: createdAt });
+        saveJsonFallback();
+        return resolve({ id, username });
+      }
+
+      db.run('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)', 
+        [id, username, hash, createdAt], 
+        function(err) {
+          if (err) return reject(new Error('Username already exists'));
+          resolve({ id, username });
+        }
+      );
+    });
+  },
+
+  authenticateUser: (username, password) => {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256').update(password).digest('hex');
+
+      if (useJsonFallback || !db) {
+        const user = jsonStore.users.find(u => u.username === username && u.password_hash === hash);
+        if (user) return resolve({ id: user.id, username: user.username });
+        return reject(new Error('Invalid credentials'));
+      }
+
+      db.get('SELECT id, username FROM users WHERE username = ? AND password_hash = ?', [username, hash], (err, row) => {
+        if (err || !row) return reject(new Error('Invalid credentials'));
+        resolve(row);
+      });
+    });
+  },
 
   // Rooms
   getAllRooms: () => {

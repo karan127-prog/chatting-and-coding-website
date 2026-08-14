@@ -479,6 +479,29 @@ const handleBotMention = (roomId, messageText, senderUser) => {
   }, 700);
 };
 
+// --- Auth Routes ---
+app.post('/api/signup', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  try {
+    const user = await DatabaseAPI.createUser(username, password);
+    res.json({ token: user.id, username: user.username });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  try {
+    const user = await DatabaseAPI.authenticateUser(username, password);
+    res.json({ token: user.id, username: user.username });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
 io.on('connection', (socket) => {
   console.log(`[Socket] Connected: ${socket.id}`);
 
@@ -505,6 +528,52 @@ io.on('connection', (socket) => {
       user,
       activeUsers: Array.from(activeUsers.values())
     });
+  });
+
+  // Handle explicit create_room from client
+  socket.on('create_room', async (payload) => {
+    console.log(`[create_room] Received from ${socket.id}`, payload);
+    const user = activeUsers.get(socket.id);
+    if (!user) {
+      console.log(`[create_room] ERROR: User not found in activeUsers for socket ${socket.id}`);
+      return;
+    }
+
+    try {
+      // Sanitize room ID
+      const roomId = (payload.name || `room-${Date.now()}`).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      console.log(`[create_room] Room ID generated: ${roomId}`);
+      const allDbRooms = await DatabaseAPI.getAllRooms();
+      
+      if (allDbRooms.find(r => r.id === roomId)) {
+        console.log(`[create_room] ERROR: Room already exists`);
+        return socket.emit('join_error', { message: 'A room with this name already exists!' });
+      }
+
+    const newRoomData = {
+      id: roomId,
+      name: payload.name || roomId,
+      description: payload.description || 'Custom room',
+      icon: payload.icon || '💬',
+      password: payload.password || '',
+      host_username: user.username,
+      tags: Array.isArray(payload.tags) ? payload.tags.join(',') : payload.tags,
+      language: payload.language || 'python'
+    };
+
+      const targetRoom = await DatabaseAPI.saveRoom(newRoomData);
+      console.log(`[create_room] Room saved to DB: ${targetRoom.id}`);
+      roomsMemory[roomId] = { hostSocketId: socket.id };
+
+      const roomsList = await getPublicRooms();
+      io.emit('rooms_updated', roomsList);
+      
+      // Automatically join the newly created room
+      admitUserToRoom(socket, targetRoom);
+      console.log(`[create_room] SUCCESS: Admitted user to ${targetRoom.id}`);
+    } catch (error) {
+      console.error(`[create_room] FATAL ERROR:`, error);
+    }
   });
 
   // Request to Join / Create Room with Password & Host Approval
@@ -791,6 +860,14 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Collaborative Whiteboard
+  socket.on('wb_draw', (data) => {
+    socket.to(data.roomId).emit('wb_draw_received', data);
+  });
+  socket.on('wb_clear', ({ roomId }) => {
+    socket.to(roomId).emit('wb_clear_received');
+  });
+
   socket.on('code_switch_file', async ({ roomId, fileId }) => {
     const workspace = await DatabaseAPI.getRoomCodeWorkspace(roomId);
     workspace.activeFileId = fileId;
@@ -816,26 +893,44 @@ io.on('connection', (socket) => {
     io.emit('user_status_change', { user, activeUsers: Array.from(activeUsers.values()) });
   });
 
-  // WebRTC Call Signaling
+  // WebRTC Mesh Call Signaling
+  socket.on('join_call', ({ roomId }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user) return;
+    socket.to(roomId).emit('user_joined_call', { 
+      socketId: socket.id, 
+      username: user.username,
+      avatar: user.avatar 
+    });
+  });
+
   socket.on('call_user', ({ userToCall, signalData, from, callerName, callerAvatar, isVideo }) => {
+    // In Mesh, userToCall is the direct socket ID
     io.to(userToCall).emit('call_incoming', { signal: signalData, from, callerName, callerAvatar, isVideo });
   });
 
   socket.on('answer_call', ({ to, signal }) => {
-    io.to(to).emit('call_accepted', signal);
+    io.to(to).emit('call_accepted', { signal, from: socket.id });
   });
 
   socket.on('ice_candidate', ({ to, candidate }) => {
     io.to(to).emit('ice_candidate_received', { candidate, from: socket.id });
   });
 
-  socket.on('end_call', ({ to }) => {
-    io.to(to).emit('call_ended');
+  socket.on('end_call', ({ roomId }) => {
+    if (roomId) {
+      socket.to(roomId).emit('user_left_call', { socketId: socket.id });
+    }
   });
 
   socket.on('disconnect', async () => {
     const user = activeUsers.get(socket.id);
     if (user) {
+      // Notify rooms that user left the call (in case they drop unexpectedly)
+      Object.keys(roomsMemory).forEach((rid) => {
+        io.to(rid).emit('user_left_call', { socketId: socket.id });
+      });
+
       activeUsers.delete(socket.id);
       io.emit('user_status_change', { user, activeUsers: Array.from(activeUsers.values()) });
 

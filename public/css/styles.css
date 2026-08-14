@@ -1733,7 +1733,7 @@ body::before {
 .call-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
   min-height: 0;
 }
@@ -1972,7 +1972,11 @@ select.form-input {
   position: absolute;
   inset: 0;
   z-index: 100;
-  background: var(--bg-void);
+  background: radial-gradient(circle at 15% 50%, rgba(56,189,248,0.1), transparent 30%), 
+              radial-gradient(circle at 85% 30%, rgba(168,85,247,0.1), transparent 30%),
+              var(--bg-void);
+  background-size: cover;
+  background-attachment: fixed;
   overflow-y: auto;
   padding: 0 40px 60px 40px;
   display: flex;
@@ -2055,7 +2059,41 @@ select.form-input {
 .lobby-hero {
   text-align: center;
   max-width: 800px;
-  margin: 20px auto 40px auto;
+  margin: 40px auto;
+  padding: 50px 30px;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.lobby-hero::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  left: -50px;
+  width: 150px;
+  height: 150px;
+  background: rgba(56, 189, 248, 0.2);
+  filter: blur(40px);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.lobby-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -50px;
+  right: -50px;
+  width: 150px;
+  height: 150px;
+  background: rgba(168, 85, 247, 0.2);
+  filter: blur(40px);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .hero-title {

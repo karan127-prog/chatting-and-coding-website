@@ -8,16 +8,75 @@ document.addEventListener('DOMContentLoaded', () => {
   // State
   let currentUser = {
     username: '',
-    avatar: ['⚡','🔥','🚀','🔮','👾','🦊','🐉','🎯'][Math.floor(Math.random()*8)],
+    token: '',
+    avatar: ['🦊','🐼','🦁','🐸','🐵','🦄','🐰','🐶'][Math.floor(Math.random()*8)],
     status: 'online',
     customStatus: 'Coding live'
   };
   let currentRoom = null, activeRoomsList = [], pendingApprovalQueue = [];
   let isHostOfRoom = false, typingTimeout = null, _pendingJoinRoom = null;
 
+  // --- Auth Flow ---
+  const authView = document.getElementById('auth-view');
+  const appContainer = document.querySelector('.app-container');
+  const authError = document.getElementById('auth-error-msg');
+  const storedUser = localStorage.getItem('pulsechat_user');
+  
+  if (storedUser) {
+    try {
+      const data = JSON.parse(storedUser);
+      currentUser.username = data.username;
+      currentUser.token = data.token;
+      authView.style.display = 'none';
+      socket.emit('register_user', currentUser);
+      socket._registered = true;
+    } catch (e) {}
+  }
+
+  const handleAuth = async (action) => {
+    const username = document.getElementById('auth-username').value.trim();
+    const password = document.getElementById('auth-password').value.trim();
+    if (!username || !password) {
+      authError.textContent = 'Please enter both username and password.';
+      authError.style.display = 'block';
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Authentication failed');
+
+      currentUser.username = data.username;
+      currentUser.token = data.token;
+      localStorage.setItem('pulsechat_user', JSON.stringify({ username: data.username, token: data.token }));
+      
+      authError.style.display = 'none';
+      authView.style.display = 'none';
+      socket.emit('register_user', currentUser);
+      socket._registered = true;
+      fetchAndRenderLobbyRooms();
+      showToast(`Welcome back, ${currentUser.username}!`, 'success');
+    } catch (err) {
+      authError.textContent = err.message;
+      authError.style.display = 'block';
+    }
+  };
+
+  document.getElementById('btn-auth-login')?.addEventListener('click', () => handleAuth('login'));
+  document.getElementById('btn-auth-signup')?.addEventListener('click', () => handleAuth('signup'));
+  document.getElementById('auth-password')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAuth('login');
+  });
+
   // Managers
   const voiceRecorder    = new window.VoiceRecorder();
   const mediaCallManager = new window.MediaCallManager(socket);
+  window.collaborativeWhiteboard = window.CollaborativeWhiteboard ? new CollaborativeWhiteboard(socket) : null;
   const codeStudio       = new window.CollaborativeCodeStudio(socket);
 
   // DOM Refs
@@ -25,8 +84,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const elSidebar      = document.getElementById('sidebar');
   const elMainView     = document.getElementById('chat-main-view');
   const elStudioView   = document.getElementById('code-studio-view');
+  const elWhiteboardView = document.getElementById('whiteboard-main-view');
   const btnModeChat    = document.getElementById('btn-mode-chat');
   const btnModeCode    = document.getElementById('btn-mode-code');
+  const btnModeWhiteboard = document.getElementById('btn-mode-whiteboard');
   const btnStudioBackChat = document.getElementById('studio-btn-back-chat');
   const btnBackToLobby    = document.getElementById('btn-back-to-lobby');
   const elTimeline     = document.getElementById('chat-timeline');
@@ -91,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elSidebar)    elSidebar.style.display    = 'none';
     if (elMainView)   elMainView.style.display   = 'none';
     if (elStudioView) elStudioView.style.display = 'none';
+    if (elWhiteboardView) elWhiteboardView.style.display = 'none';
     fetchAndRenderLobbyRooms();
   };
   const hideLobbyView = () => {
@@ -98,71 +160,78 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elSidebar)  elSidebar.style.display  = 'flex';
     if (elMainView) elMainView.style.display = 'flex';
   };
-  const switchViewMode = mode => {
-    hideLobbyView();
-    if (mode==='code') {
-      if(elMainView)   elMainView.style.display   = 'none';
+  const switchViewMode = (mode) => {
+    if(!currentRoom) return;
+    if(mode === 'code') {
+      if(elMainView) elMainView.style.display = 'none';
+      if(elWhiteboardView) elWhiteboardView.style.display = 'none';
       if(elStudioView) elStudioView.style.display = 'flex';
-      btnModeChat?.classList.remove('active'); btnModeCode?.classList.add('active');
-    } else {
-      if(elMainView)   elMainView.style.display   = 'flex';
+      btnModeChat?.classList.remove('active'); 
+      btnModeWhiteboard?.classList.remove('active'); 
+      btnModeCode?.classList.add('active');
+    } else if(mode === 'whiteboard') {
+      if(elMainView) elMainView.style.display = 'none';
       if(elStudioView) elStudioView.style.display = 'none';
-      btnModeCode?.classList.remove('active'); btnModeChat?.classList.add('active');
+      if(elWhiteboardView) elWhiteboardView.style.display = 'flex';
+      btnModeChat?.classList.remove('active'); 
+      btnModeCode?.classList.remove('active'); 
+      btnModeWhiteboard?.classList.add('active');
+      if (window.collaborativeWhiteboard) window.collaborativeWhiteboard.resizeCanvas();
+    } else {
+      if(elStudioView) elStudioView.style.display = 'none';
+      if(elWhiteboardView) elWhiteboardView.style.display = 'none';
+      if(elMainView) elMainView.style.display = 'flex';
+      btnModeCode?.classList.remove('active'); 
+      btnModeWhiteboard?.classList.remove('active'); 
+      btnModeChat?.classList.add('active');
     }
   };
   btnModeChat?.addEventListener('click', ()=>switchViewMode('chat'));
   btnModeCode?.addEventListener('click', ()=>switchViewMode('code'));
+  btnModeWhiteboard?.addEventListener('click', ()=>switchViewMode('whiteboard'));
   btnStudioBackChat?.addEventListener('click', ()=>switchViewMode('chat'));
   btnBackToLobby?.addEventListener('click', ()=>showLobbyView());
+  document.querySelectorAll('.btn-go-home').forEach(btn => btn.addEventListener('click', ()=>showLobbyView()));
 
-  // Name Gate — only ask for name when user tries to do something
-  const requireName = action => {
-    if (socket._registered && currentUser.username) { action(); return; }
-    socket._pendingAction = action;
-    const el = document.getElementById('portal-username');
-    if (el) el.value = currentUser.username || '';
-    openModal(modalWelcome);
-    setTimeout(() => el && el.focus(), 150);
-  };
-
-  document.getElementById('portal-btn-enter-room')?.addEventListener('click', () => {
-    const nameEl = document.getElementById('portal-username');
-    const name   = nameEl?.value.trim();
-    const errEl  = document.getElementById('portal-error-msg');
-    if (!name) {
-      if (errEl) { errEl.style.display='block'; errEl.innerText='Please enter a display name!'; }
-      return;
-    }
-    if (errEl) errEl.style.display = 'none';
-    currentUser.username = name;
-    closeModal(modalWelcome);
-    const ln=document.getElementById('lobby-username');    if(ln) ln.innerText=name;
-    const la=document.getElementById('lobby-user-avatar'); if(la) la.innerText=currentUser.avatar;
-    if (!socket._registered) socket.emit('user_join', currentUser);
-    else if (socket._pendingAction) { const a=socket._pendingAction; socket._pendingAction=null; a(); }
+  // Tabs for lobby filtering
+  document.getElementById('tab-my-envs')?.addEventListener('click', (e) => {
+    activeLobbyTab = 'my-envs';
+    e.target.classList.add('active');
+    document.getElementById('tab-public-hubs')?.classList.remove('active');
+    fetchAndRenderLobbyRooms();
   });
-  document.getElementById('portal-username')?.addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('portal-btn-enter-room')?.click(); });
+  document.getElementById('tab-public-hubs')?.addEventListener('click', (e) => {
+    activeLobbyTab = 'public-hubs';
+    e.target.classList.add('active');
+    document.getElementById('tab-my-envs')?.classList.remove('active');
+    fetchAndRenderLobbyRooms();
+  });
 
   // Fetch & Render Lobby Rooms
   const fetchAndRenderLobbyRooms = async () => {
-    const q    = (document.getElementById('lobby-room-search')?.value||'').toLowerCase().trim();
-    const pill = document.querySelector('.filter-pills .pill.active')?.getAttribute('data-filter')||'all';
     const grid = document.getElementById('lobby-rooms-grid');
     if (!grid) return;
 
-    try { const res=await fetch('/api/rooms'); const d=await res.json(); activeRoomsList=d.rooms||activeRoomsList; } catch(e) {}
+    try { 
+      const res=await fetch('/api/rooms'); 
+      const d=await res.json(); 
+      activeRoomsList=d.rooms||activeRoomsList; 
+    } catch(e) {}
 
+    const q = (document.getElementById('lobby-room-search')?.value||'').toLowerCase().trim();
     let filtered = activeRoomsList.filter(r => {
       const n=(r.name||'').toLowerCase(), desc=(r.description||'').toLowerCase();
       const t=(Array.isArray(r.tags)?r.tags.join(' '):r.tags||'').toLowerCase();
       const m=!q||n.includes(q)||desc.includes(q)||t.includes(q);
       if(!m) return false;
-      if(pill==='python')     return r.language==='python'    ||t.includes('python');
-      if(pill==='javascript') return r.language==='javascript'||t.includes('javascript');
-      if(pill==='web')        return r.language==='html'      ||t.includes('web');
-      if(pill==='protected')  return !!r.hasPassword;
       return true;
     });
+
+    if (activeLobbyTab === 'my-envs') {
+      filtered = filtered.filter(r => r.host_username === currentUser.username || r.hostUsername === currentUser.username);
+    } else {
+      filtered = filtered.filter(r => r.host_username !== currentUser.username && r.hostUsername !== currentUser.username);
+    }
 
     const lbl=document.getElementById('lobby-room-count-label'); if(lbl) lbl.innerText=filtered.length+' room'+(filtered.length!==1?'s':'')+' available';
     const stat=document.getElementById('stat-active-rooms'); if(stat) stat.innerText=activeRoomsList.length;
@@ -237,7 +306,51 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>requireName(()=>openModal(modalCreateRoom)));
 
   // Socket
-  socket.on('connect', ()=>{ fetchAndRenderLobbyRooms(); });
+  socket.on('connect', ()=>{ 
+    if (currentUser.username) {
+      socket.emit('user_join', currentUser);
+    }
+    // Chat Drag & Drop File Uploads
+    if (elTimeline) {
+      elTimeline.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        elTimeline.style.border = '2px dashed #8b5cf6';
+      });
+      elTimeline.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        elTimeline.style.border = 'none';
+      });
+      elTimeline.addEventListener('drop', (e) => {
+        e.preventDefault();
+        elTimeline.style.border = 'none';
+        if(!currentRoom) return;
+        
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          
+          // Safety: Limit file size to 5MB
+          if (file.size > 5 * 1024 * 1024) {
+            showToast('File is too large! Maximum allowed is 5MB.', 'error');
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const fileData = {
+              filename: file.name,
+              mimetype: file.type,
+              url: e.target.result
+            };
+            socket.emit('send_message', { roomId: currentRoom.id, attachment: fileData });
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+
+    fetchAndRenderLobbyRooms(); 
+  });
 
   socket.on('init_payload', data => {
     socket._registered=true;
@@ -257,6 +370,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if(elRoomDesc)  elRoomDesc.innerText =(room.description||'');
     renderChannelsList(activeRoomsList); renderMessages(messages||[]); renderRoomMembers(members||[]);
     if(codeWorkspace) codeStudio.loadWorkspace(codeWorkspace,room.id);
+    
+    // Switch view if first time entering room
+    switchViewMode('chat');
+
+    // Notify Whiteboard
+    if (window.collaborativeWhiteboard) {
+      window.collaborativeWhiteboard.setRoomId(currentRoom.id);
+      window.collaborativeWhiteboard.clearBoard(false); // clear UI board safely
+    }
+
     showToast('Joined #'+room.name,'success');
   });
 
@@ -348,8 +471,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-create-room-modal')?.addEventListener('click', ()=>requireName(()=>openModal(modalCreateRoom)));
   document.getElementById('btn-close-room-modal')?.addEventListener('click', ()=>closeModal(modalCreateRoom));
   document.getElementById('btn-confirm-create-room')?.addEventListener('click', ()=>{
-    const name=document.getElementById('input-room-name')?.value.trim(); if(!name){showToast('Please enter a room name','error');return;}
+    console.log("Create room button clicked!");
+    if (!socket.connected) {
+      showToast('You are offline! Please refresh the page.', 'error');
+      return;
+    }
+    const name=document.getElementById('input-room-name')?.value.trim(); 
+    if(!name){showToast('Please enter a room name','error');return;}
     const payload={name,password:document.getElementById('input-room-passcode')?.value.trim()||'',icon:document.getElementById('input-room-icon')?.value.trim()||'⚡',description:document.getElementById('input-room-desc')?.value.trim()||'',language:document.getElementById('input-room-language')?.value||'python',tags:[document.getElementById('input-room-language')?.value||'python','code']};
+    console.log("Emitting create_room with payload:", payload);
     if(socket._registered) socket.emit('create_room',payload); else{socket._pendingAction=()=>socket.emit('create_room',payload);requireName(()=>{});}
     closeModal(modalCreateRoom); ['input-room-name','input-room-passcode','input-room-desc'].forEach(id=>{const el=document.getElementById(id);if(el) el.value='';});
   });
@@ -361,7 +491,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Misc
   document.getElementById('btn-clear-chat')?.addEventListener('click', ()=>{if(elTimeline) elTimeline.innerHTML='';});
-  document.getElementById('btn-start-call')?.addEventListener('click', ()=>{ if(!currentRoom){showToast('Join a room first','info');return;} mediaCallManager.startCall(currentRoom.id,currentUser); });
+  document.getElementById('btn-start-call')?.addEventListener('click', ()=>{ 
+    if(!currentRoom){showToast('Join a room first','info');return;}
+    mediaCallManager.startCall(currentRoom.id, currentUser);
+  });
 
   // Boot — show lobby immediately, no popup
   showLobbyView();

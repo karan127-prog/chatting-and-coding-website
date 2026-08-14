@@ -34,7 +34,9 @@ class CollaborativeCodeStudio {
         theme: 'darcula',
         indentUnit: 4,
         matchBrackets: true,
-        autoCloseBrackets: true
+        autoCloseBrackets: true,
+        lint: true,
+        gutters: ["CodeMirror-lint-markers", "CodeMirror-linenumbers"]
       });
       this.editor.setSize('100%', '100%');
       
@@ -54,6 +56,36 @@ class CollaborativeCodeStudio {
             });
           }
         }
+      });
+
+      // Autocomplete (IntelliSense) bindings
+      this.editor.on('keyup', (cm, event) => {
+        const ignoreKeys = [8, 9, 13, 16, 17, 18, 20, 27, 37, 38, 39, 40, 91, 93];
+        if (!ignoreKeys.includes(event.keyCode) && !cm.state.completionActive) {
+          CodeMirror.commands.autocomplete(cm, null, { completeSingle: false });
+        }
+      });
+
+      // AI Context Menu binding
+      this.editor.getWrapperElement().addEventListener('contextmenu', (e) => {
+        const selection = this.editor.getSelection();
+        if (selection.trim().length > 0) {
+          e.preventDefault();
+          const menu = document.getElementById('ai-context-menu');
+          if (menu) {
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+            
+            window.activeCodeSelection = selection;
+            window.activeCodeLanguage = this.getActiveFile()?.language || 'python';
+          }
+        }
+      });
+
+      document.addEventListener('click', () => {
+        const menu = document.getElementById('ai-context-menu');
+        if (menu) menu.style.display = 'none';
       });
 
       this.editor.on('cursorActivity', (cm) => {
@@ -192,11 +224,77 @@ builtins.input = custom_input
 
     document.getElementById('btn-ask-copilot')?.addEventListener('click', () => {
       const input = document.getElementById('copilot-custom-prompt');
-      const val = input ? input.value : '';
-      if (val.trim() && this.extensions) {
-        this.extensions.askAICopilot('custom', val);
+      if (input && input.value.trim() !== '') {
+        this.executeAIAction('explain', input.value.trim());
         input.value = '';
       }
+    });
+
+    // AI Context Menu Buttons
+    document.getElementById('btn-ai-explain')?.addEventListener('click', () => {
+      if (window.activeCodeSelection) {
+        this.executeAIAction('explain', 'Explain this specific block of code: \n' + window.activeCodeSelection);
+      }
+    });
+
+    document.getElementById('btn-ai-fix')?.addEventListener('click', () => {
+      if (window.activeCodeSelection) {
+        this.executeAIAction('fix', 'Fix any bugs in this code snippet: \n' + window.activeCodeSelection);
+      }
+    });
+
+    document.getElementById('btn-ai-convert-py')?.addEventListener('click', () => {
+      if (window.activeCodeSelection) {
+        this.executeAIAction('explain', 'Convert this code to Python 3: \n' + window.activeCodeSelection);
+      }
+    });
+
+    // Time Travel Logic
+    this.sessionHistory = [];
+    setInterval(() => {
+      const activeFile = this.getActiveFile();
+      if (activeFile && activeFile.content.trim() !== '') {
+        const lastSnapshot = this.sessionHistory[this.sessionHistory.length - 1];
+        if (!lastSnapshot || lastSnapshot.content !== activeFile.content) {
+          this.sessionHistory.push({
+            timestamp: new Date().toLocaleTimeString(),
+            content: activeFile.content
+          });
+        }
+      }
+    }, 10000); // Snapshot every 10 seconds if changed
+
+    document.getElementById('btn-studio-time-travel')?.addEventListener('click', () => {
+      const modal = document.getElementById('modal-time-travel');
+      const list = document.getElementById('time-travel-list');
+      if (modal && list) {
+        list.innerHTML = '';
+        if (this.sessionHistory.length === 0) {
+          list.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem;">No history snapshots recorded yet. Write some code and wait a few seconds!</div>';
+        } else {
+          this.sessionHistory.slice().reverse().forEach((snap, idx) => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-panel-btn';
+            btn.style.textAlign = 'left';
+            btn.style.background = '#1e293b';
+            btn.style.border = '1px solid #334155';
+            btn.innerHTML = `<strong>Snapshot ${this.sessionHistory.length - idx}</strong> &mdash; ${snap.timestamp}`;
+            btn.addEventListener('click', () => {
+              if (confirm('Restore this snapshot? This will overwrite the current active file.')) {
+                this.editor.setValue(snap.content);
+                modal.classList.remove('active');
+                window.showToast?.('Snapshot restored!', 'success');
+              }
+            });
+            list.appendChild(btn);
+          });
+        }
+        modal.classList.add('active');
+      }
+    });
+
+    document.getElementById('btn-close-time-travel')?.addEventListener('click', () => {
+      document.getElementById('modal-time-travel')?.classList.remove('active');
     });
 
     // Split View Toggle

@@ -1,145 +1,245 @@
 /**
  * MediaCall Engine for PulseChat
- * WebRTC Video/Audio Call Manager with dynamic canvas visualizers and fallbacks
+ * Full Mesh Real-Time WebRTC Group Video Call Manager
  */
 class MediaCallManager {
   constructor(socket) {
     this.socket = socket;
     this.localStream = null;
-    this.peerConnection = null;
+    this.screenStream = null;
+    this.peers = {}; // socketId -> RTCPeerConnection
     this.isCallActive = false;
     this.isMicMuted = false;
     this.isCamOff = false;
+    this.isSharingScreen = false;
+    this.roomId = null;
+    this.currentUser = null;
 
     this.localVideo = document.getElementById('local-video');
-    this.remoteVideo = document.getElementById('remote-video');
     this.modalCall = document.getElementById('modal-call');
+    this.videoGrid = document.getElementById('call-video-grid');
+    this.visualizers = {};
 
+    this.bindCallControls();
     this.initSocketEvents();
   }
 
+  bindCallControls() {
+    document.getElementById('btn-toggle-mic')?.addEventListener('click', () => this.toggleMic());
+    document.getElementById('btn-toggle-cam')?.addEventListener('click', () => this.toggleCam());
+    document.getElementById('btn-toggle-share')?.addEventListener('click', () => this.toggleScreenShare());
+    document.getElementById('btn-record-call')?.addEventListener('click', () => this.toggleRecording());
+    document.getElementById('btn-end-call')?.addEventListener('click', () => this.endCall());
+  }
+
   initSocketEvents() {
-    this.socket.on('call_incoming', ({ signal, from, callerName, callerAvatar, isVideo }) => {
-      if (confirm(`📞 Incoming Video Call from ${callerName}! Accept?`)) {
-        this.startCall(true, from);
+    // When someone joins the call, create an offer and send it to them
+    this.socket.on('user_joined_call', async ({ socketId, username, avatar }) => {
+      if (!this.isCallActive) return;
+      this.createPeerConnection(socketId, username, avatar, true);
+    });
+
+    this.socket.on('call_incoming', async ({ signal, from, callerName, callerAvatar }) => {
+      if (!this.isCallActive) return; // Ignore if we haven't joined the call
+      await this.handleOffer(signal, from, callerName, callerAvatar);
+    });
+
+    this.socket.on('call_accepted', async ({ signal, from }) => {
+      if (this.peers[from]) {
+        try {
+          await this.peers[from].setRemoteDescription(new RTCSessionDescription(signal));
+        } catch (e) {
+          console.error('Failed to set remote description on call accepted', e);
+        }
       }
     });
 
-    this.socket.on('call_accepted', (signal) => {
-      console.log('Call accepted by remote peer');
+    this.socket.on('ice_candidate_received', async ({ candidate, from }) => {
+      if (this.peers[from]) {
+        try {
+          await this.peers[from].addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error('Error adding received ice candidate', e);
+        }
+      }
     });
 
-    this.socket.on('call_ended', () => {
-      this.endCall();
-      alert('The call has been ended.');
+    this.socket.on('user_left_call', ({ socketId }) => {
+      this.removePeer(socketId);
     });
   }
 
-  async startCall(isIncoming = false, targetPeerId = null) {
+  async startCall(roomId, currentUser) {
+    this.roomId = roomId;
+    this.currentUser = currentUser;
     this.modalCall.classList.add('active');
     this.isCallActive = true;
 
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       this.localVideo.srcObject = this.localStream;
+      this.startAudioVisualizer('local-audio-canvas');
     } catch (err) {
-      console.warn('Camera/Microphone not available, initializing interactive demo video feed.');
-      this.createDemoCanvasStream();
+      console.error(err);
+      alert('Could not access camera/microphone. Please ensure you have given permissions.');
+      this.endCall();
+      return;
     }
 
-    this.startAudioVisualizer('local-audio-canvas');
-
-    if (!isIncoming) {
-      this.simulateRemotePeerFeed();
-    }
+    // Broadcast to the room that we've joined
+    this.socket.emit('join_call', { roomId });
   }
 
-  createDemoCanvasStream() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 360;
-    const ctx = canvas.getContext('2d');
+  createPeerConnection(targetSocketId, username, avatar, isInitiator = false) {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ]
+    });
 
-    let hue = 0;
-    const drawDemo = () => {
-      if (!this.isCallActive) return;
-      hue = (hue + 1) % 360;
-      ctx.fillStyle = `hsl(${hue}, 60%, 15%)`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    this.peers[targetSocketId] = pc;
+    this.createVideoElement(targetSocketId, username);
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px Outfit, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('⚡ Live Camera Stream', canvas.width / 2, canvas.height / 2 - 20);
-      ctx.fillStyle = '#a855f7';
-      ctx.font = '16px Inter, sans-serif';
-      ctx.fillText(new Date().toLocaleTimeString(), canvas.width / 2, canvas.height / 2 + 20);
-
-      requestAnimationFrame(drawDemo);
-    };
-
-    drawDemo();
-    const demoStream = canvas.captureStream(30);
-    this.localVideo.srcObject = demoStream;
-    this.localStream = demoStream;
-  }
-
-  simulateRemotePeerFeed() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 360;
-    const ctx = canvas.getContext('2d');
-
-    let radius = 20;
-    let expanding = true;
-
-    const drawRemote = () => {
-      if (!this.isCallActive) return;
-
-      if (expanding) {
-        radius += 0.5;
-        if (radius > 50) expanding = false;
-      } else {
-        radius -= 0.5;
-        if (radius < 20) expanding = true;
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.socket.emit('ice_candidate', { to: targetSocketId, candidate: event.candidate });
       }
-
-      ctx.fillStyle = '#0d1322';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Glowing aura
-      const grad = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 5, canvas.width / 2, canvas.height / 2, radius * 3);
-      grad.addColorStop(0, 'rgba(99, 102, 241, 0.4)');
-      grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = '#6366f1';
-      ctx.beginPath();
-      ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 20px Outfit, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🤖 PulseBot Connected Feed', canvas.width / 2, canvas.height / 2 + 90);
-
-      requestAnimationFrame(drawRemote);
     };
 
-    drawRemote();
-    const remoteStream = canvas.captureStream(30);
-    this.remoteVideo.srcObject = remoteStream;
-    this.startAudioVisualizer('remote-audio-canvas');
+    pc.ontrack = (event) => {
+      const remoteVid = document.getElementById(`video-${targetSocketId}`);
+      if (remoteVid) {
+        remoteVid.srcObject = event.streams[0];
+        this.startAudioVisualizer(`canvas-${targetSocketId}`);
+      }
+    };
+
+    const currentStream = this.isSharingScreen && this.screenStream ? this.screenStream : this.localStream;
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => {
+        pc.addTrack(track, currentStream);
+      });
+    }
+
+    if (isInitiator) {
+      this.makeOffer(targetSocketId);
+    }
+
+    return pc;
+  }
+
+  async makeOffer(targetSocketId) {
+    const pc = this.peers[targetSocketId];
+    if (!pc) return;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      this.socket.emit('call_user', {
+        userToCall: targetSocketId,
+        signalData: offer,
+        from: this.socket.id,
+        callerName: this.currentUser.username,
+        callerAvatar: this.currentUser.avatar || '⚡',
+        isVideo: true
+      });
+    } catch (err) {
+      console.error('Error creating offer', err);
+    }
+  }
+
+  async handleOffer(offerSignal, fromSocketId, callerName, callerAvatar) {
+    const pc = this.createPeerConnection(fromSocketId, callerName, callerAvatar, false);
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offerSignal));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      this.socket.emit('answer_call', {
+        to: fromSocketId,
+        signal: answer
+      });
+    } catch (err) {
+      console.error('Error creating answer', err);
+    }
+  }
+
+  createVideoElement(socketId, username) {
+    if (document.getElementById(`card-${socketId}`)) return;
+
+    const card = document.createElement('div');
+    card.className = 'video-card';
+    card.id = `card-${socketId}`;
+    
+    const vid = document.createElement('video');
+    vid.id = `video-${socketId}`;
+    vid.autoplay = true;
+    vid.playsInline = true;
+    
+    const canvas = document.createElement('canvas');
+    canvas.className = 'audio-visualizer-canvas';
+    canvas.id = `canvas-${socketId}`;
+    
+    const tag = document.createElement('div');
+    tag.className = 'video-user-tag';
+    tag.innerHTML = `<span>${username}</span>`;
+    
+    const pipBtn = document.createElement('button');
+    pipBtn.className = 'btn-call-ctrl';
+    pipBtn.style.position = 'absolute';
+    pipBtn.style.top = '10px';
+    pipBtn.style.right = '10px';
+    pipBtn.style.width = '30px';
+    pipBtn.style.height = '30px';
+    pipBtn.style.fontSize = '0.9rem';
+    pipBtn.style.background = 'rgba(15, 23, 42, 0.6)';
+    pipBtn.title = 'Picture-in-Picture';
+    pipBtn.innerHTML = '🔲';
+    pipBtn.addEventListener('click', async () => {
+      try {
+        if (document.pictureInPictureElement !== vid) {
+          await vid.requestPictureInPicture();
+        } else {
+          await document.exitPictureInPicture();
+        }
+      } catch (err) {
+        console.error('PiP failed', err);
+      }
+    });
+    
+    card.appendChild(vid);
+    card.appendChild(canvas);
+    card.appendChild(tag);
+    card.appendChild(pipBtn);
+    
+    this.videoGrid.appendChild(card);
+  }
+
+  removePeer(socketId) {
+    const pc = this.peers[socketId];
+    if (pc) {
+      pc.close();
+      delete this.peers[socketId];
+    }
+    const card = document.getElementById(`card-${socketId}`);
+    if (card) {
+      card.remove();
+    }
   }
 
   startAudioVisualizer(canvasId) {
+    if (!this.visualizers) this.visualizers = {};
+    if (this.visualizers[canvasId]) return;
+    this.visualizers[canvasId] = true;
+
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
     const drawVisualizer = () => {
-      if (!this.isCallActive) return;
+      if (!this.isCallActive || !document.getElementById(canvasId)) {
+        this.visualizers[canvasId] = false;
+        return;
+      }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const bars = 16;
@@ -157,6 +257,48 @@ class MediaCallManager {
     };
 
     drawVisualizer();
+  }
+  async toggleRecording() {
+    const btn = document.getElementById('btn-record-call');
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      this.mediaRecorder.stop();
+      btn.classList.remove('active');
+      btn.innerHTML = '⏺️';
+      window.showToast?.('Recording saved to your downloads!', 'success');
+      return;
+    }
+
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      this.mediaRecorder = new MediaRecorder(displayStream);
+      this.recordedChunks = [];
+
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) this.recordedChunks.push(e.data);
+      };
+
+      this.mediaRecorder.onstop = () => {
+        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `PulseChat_Recording_${new Date().getTime()}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        displayStream.getTracks().forEach(track => track.stop());
+      };
+
+      this.mediaRecorder.start();
+      btn.classList.add('active');
+      btn.innerHTML = '⏹️';
+      window.showToast?.('Recording started', 'success');
+    } catch (e) {
+      console.error('Failed to start recording', e);
+      window.showToast?.('Could not capture screen for recording.', 'error');
+    }
   }
 
   toggleMic() {
@@ -190,9 +332,44 @@ class MediaCallManager {
   }
 
   async toggleScreenShare() {
+    const btn = document.getElementById('btn-toggle-share');
+
+    if (this.isSharingScreen) {
+      this.isSharingScreen = false;
+      btn.classList.remove('active-off');
+      btn.innerText = '🖥️';
+
+      if (this.screenStream) {
+        this.screenStream.getTracks().forEach(t => t.stop());
+      }
+      
+      if (this.localStream) {
+        const originalVideoTrack = this.localStream.getVideoTracks()[0];
+        this.localVideo.srcObject = this.localStream;
+        Object.values(this.peers).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) sender.replaceTrack(originalVideoTrack);
+        });
+      }
+      return;
+    }
+
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      this.localVideo.srcObject = screenStream;
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      this.localVideo.srcObject = this.screenStream;
+      this.isSharingScreen = true;
+      btn.classList.add('active-off');
+      btn.innerText = '❌ Share';
+      
+      const videoTrack = this.screenStream.getVideoTracks()[0];
+      Object.values(this.peers).forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (sender) sender.replaceTrack(videoTrack);
+      });
+
+      videoTrack.onended = () => {
+        if (this.isSharingScreen) this.toggleScreenShare();
+      };
     } catch (err) {
       console.warn('Screen sharing cancelled or unavailable');
     }
@@ -203,13 +380,24 @@ class MediaCallManager {
     this.modalCall.classList.remove('active');
 
     if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
+      this.localStream.getTracks().forEach(track => track.stop());
+    }
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach(track => track.stop());
     }
 
-    this.localVideo.srcObject = null;
-    this.remoteVideo.srcObject = null;
+    Object.keys(this.peers).forEach(socketId => {
+      this.removePeer(socketId);
+    });
 
-    this.socket.emit('end_call', { to: 'all' });
+    this.localVideo.srcObject = null;
+    if (this.roomId) {
+      this.socket.emit('end_call', { roomId: this.roomId });
+    }
+    this.roomId = null;
+    this.isSharingScreen = false;
+    document.getElementById('btn-toggle-share').innerText = '🖥️';
+    document.getElementById('btn-toggle-share').classList.remove('active-off');
   }
 }
 

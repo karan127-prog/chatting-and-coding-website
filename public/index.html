@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    window.onerror = function(message, source, lineno, colno, error) {
+      alert("JS ERROR: " + message + " at " + source + ":" + lineno);
+    };
+  </script>
   <title>PulseChat — Code Studio & Front Page Portal</title>
   <meta name="description" content="Next-gen real-time group chat, Code Studio editor with Extensions Marketplace, SQLite persistence, and WebRTC video calling.">
   <link rel="stylesheet" href="css/styles.css">
@@ -11,8 +16,17 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/darcula.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/monokai.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/material-darker.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/lint/lint.min.css">
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+
+  <script>
+    if (window.location.protocol === 'file:') {
+      alert("STOP! You opened this file directly from your folder (file://).\n\nBecause this app requires a live backend server, NOTHING WILL WORK if you open it this way.\n\nPlease open a new browser tab and go to: http://localhost:3000");
+      document.write('<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:red;color:white;z-index:999999;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:bold;text-align:center;padding:50px;">STOP!<br><br>You cannot open index.html directly.<br><br>Please open a new tab and go to:<br><br><a href="http://localhost:3000" style="color:yellow;text-decoration:underline;">http://localhost:3000</a></div>');
+    }
+  </script>
 </head>
 <body class="theme-vscode-dark">
 
@@ -21,6 +35,22 @@
 
   <!-- App Wrapper -->
   <div id="app-container">
+
+    <!-- AUTHENTICATION VIEW -->
+    <div id="auth-view" style="display:flex; position:absolute; inset:0; z-index:9999; background: radial-gradient(circle at 50% 50%, rgba(15,23,42,0.9), #0f172a); justify-content:center; align-items:center;">
+      <div class="modal-box" style="width:400px; padding:40px; text-align:center;">
+        <div class="modal-title" style="font-size:2rem; margin-bottom:10px;">Welcome to PulseChat</div>
+        <div class="modal-subtitle" style="margin-bottom:30px;">Login or sign up to access your environments</div>
+        
+        <input type="text" id="auth-username" class="form-input" placeholder="Username" style="margin-bottom:15px; width:100%; box-sizing:border-box;">
+        <input type="password" id="auth-password" class="form-input" placeholder="Password" style="margin-bottom:20px; width:100%; box-sizing:border-box;">
+        
+        <button id="btn-auth-login" class="btn-primary" style="width:100%; margin-bottom:15px; padding:12px;">Login</button>
+        <button id="btn-auth-signup" class="btn-secondary" style="width:100%; padding:12px;">Create Account</button>
+        
+        <div id="auth-error-msg" style="color:#ff5f56; margin-top:15px; font-size:0.9rem; display:none;"></div>
+      </div>
+    </div>
 
     <!-- ═════════════════════════════════════════════════════════ -->
     <!-- 1. FRONT PAGE LOBBY (Landing Dashboard & Room Portal)   -->
@@ -61,7 +91,28 @@
         </div>
       </header>
 
-      <!-- Hero Section -->
+      <div class="modal-overlay" id="modal-time-travel">
+    <div class="modal-box" style="width:500px;">
+      <div class="modal-title">Time Travel ⏳</div>
+      <div class="modal-subtitle">Restore previous versions of this file</div>
+      <div id="time-travel-list" style="max-height:300px; overflow-y:auto; margin-top:15px; display:flex; flex-direction:column; gap:8px;"></div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button class="btn-header-action" id="btn-close-time-travel">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ai-context-menu" style="display:none; position:absolute; z-index:9999; background:#1e293b; border:1px solid #334155; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.8); padding:8px 0; min-width:200px;">
+    <div class="ai-menu-item" id="btn-ai-explain" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🧠 Explain this Code</div>
+    <div class="ai-menu-item" id="btn-ai-fix" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🛠️ Fix Bugs</div>
+    <div class="ai-menu-item" id="btn-ai-convert-py" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🔄 Convert to Python</div>
+  </div>
+
+  <style>
+    .ai-menu-item:hover { background: #334155; color: #38bdf8 !important; }
+  </style>
+
+  <!-- JS Dependencies -->
       <section class="lobby-hero">
         <h1 class="hero-title">Collaborate, Code & Chat in <span class="highlight-text">Real-Time</span></h1>
         <p class="hero-subtitle">
@@ -87,9 +138,12 @@
 
       <!-- Rooms Grid Section -->
       <section class="lobby-rooms-section">
-        <div class="section-title-bar">
-          <h2>Featured Rooms & Workspaces</h2>
-          <span class="section-subtitle" id="lobby-room-count-label">Showing 3 public rooms</span>
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+          <h2 class="section-title">Environments</h2>
+          <div class="lobby-tabs" style="display:flex; gap:10px; background:rgba(255,255,255,0.05); padding:5px; border-radius:12px;">
+            <button id="tab-my-envs" class="btn-panel-btn active" style="border:none; padding:8px 16px;">My Environments</button>
+            <button id="tab-public-hubs" class="btn-panel-btn" style="border:none; padding:8px 16px; background:transparent;">Public Hubs</button>
+          </div>
         </div>
 
         <div class="rooms-grid" id="lobby-rooms-grid">
@@ -174,9 +228,11 @@
         <div class="mode-toggle-container">
           <button class="btn-mode-tab active" id="btn-mode-chat">💬 Chat</button>
           <button class="btn-mode-tab" id="btn-mode-code">👨‍💻 Pulse Studio</button>
+          <button class="btn-mode-tab" id="btn-mode-whiteboard">🖌️ Whiteboard</button>
         </div>
 
         <div class="header-actions">
+          <button class="btn-header-action btn-go-home" title="Go to Home">🏠 Home</button>
           <button class="btn-header-action primary" id="btn-start-call">
             📹 <span>Video Call</span>
           </button>
@@ -245,6 +301,20 @@
     </main>
 
     <!-- ═════════════════════════════════════════════════════════ -->
+    <!-- COLLABORATIVE WHITEBOARD VIEW                             -->
+    <!-- ═════════════════════════════════════════════════════════ -->
+    <main class="whiteboard-main" id="whiteboard-main-view" style="display:none; position:relative; flex:1; background:#0f172a;">
+      <div class="whiteboard-toolbar" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(30,41,59,0.95); padding:10px 20px; border-radius:30px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display:flex; gap:15px; align-items:center; border: 1px solid rgba(255,255,255,0.1);">
+        <button class="btn-header-action btn-go-home" title="Go to Home" style="border:none;">🏠</button>
+        <div style="width:1px; height:20px; background:rgba(255,255,255,0.1);"></div>
+        <input type="color" id="wb-color" value="#38bdf8" title="Brush Color" style="cursor:pointer; width:30px; height:30px; border:none; border-radius:50%; overflow:hidden;">
+        <input type="range" id="wb-size" min="1" max="20" value="3" title="Brush Size" style="cursor:pointer; width:100px;">
+        <button class="btn-header-action" id="wb-clear" title="Clear Board" style="background:rgba(255,0,0,0.2); color:#ff5f56; border:none;">🗑️ Clear</button>
+      </div>
+      <canvas id="whiteboard-canvas" style="cursor:crosshair; touch-action:none; display:block; width:100%; height:100%;"></canvas>
+    </main>
+
+    <!-- ═════════════════════════════════════════════════════════ -->
     <!-- 4. VS CODE COLLABORATIVE CODE STUDIO VIEW                 -->
     <!-- ═════════════════════════════════════════════════════════ -->
     <main class="code-studio-view" id="code-studio-view" style="display:none;">
@@ -256,6 +326,7 @@
         <button class="activity-btn" data-panel="source-control" title="Source Control (Git)"><i class="fa-solid fa-code-branch"></i></button>
         <button class="activity-btn" data-panel="extensions" title="Extensions Marketplace"><i class="fa-solid fa-cubes"></i></button>
         <button class="activity-btn" data-panel="copilot" title="Pulse AI Copilot"><i class="fa-solid fa-robot"></i></button>
+        <button class="activity-btn" data-panel="whiteboard" title="Collaborative Whiteboard"><i class="fa-solid fa-paintbrush"></i></button>
         <button class="activity-btn" data-panel="settings" title="Settings & Themes" style="margin-top:auto;"><i class="fa-solid fa-gear"></i></button>
       </div>
 
@@ -407,6 +478,8 @@
               <option value="css">CSS3</option>
               <option value="json">JSON</option>
             </select>
+            <button class="btn-header-action btn-go-home" title="Go to Home">🏠 Home</button>
+            <button class="btn-header-action" id="btn-studio-time-travel" title="View Version History">⏳ History</button>
             <button class="btn-header-action" id="btn-toggle-split-view" title="Toggle Side-by-Side Web Preview">🌐 Split Preview</button>
             <button class="btn-header-action" id="studio-btn-back-chat">💬 Chat</button>
             <button class="btn-header-action" id="btn-studio-download-file">💾 Export</button>
@@ -566,22 +639,19 @@
       <div class="call-room-title">📹 <span id="call-room-name">Video Lounge</span></div>
       <div style="font-size:0.78rem;color:var(--status-online);" id="call-status-indicator">● Connected</div>
     </div>
-    <div class="call-body">
-      <div class="video-card">
+    <div class="call-body" id="call-video-grid">
+      <div class="video-card" id="local-video-card">
         <video id="local-video" autoplay muted playsinline></video>
         <canvas class="audio-visualizer-canvas" id="local-audio-canvas"></canvas>
         <div class="video-user-tag"><span id="call-local-name">You (Local)</span></div>
       </div>
-      <div class="video-card" id="remote-video-card">
-        <video id="remote-video" autoplay playsinline></video>
-        <canvas class="audio-visualizer-canvas" id="remote-audio-canvas"></canvas>
-        <div class="video-user-tag"><span id="call-remote-name">Peer</span></div>
-      </div>
+      <!-- Remote videos will be dynamically inserted here -->
     </div>
     <div class="call-controls-bar">
       <button class="btn-call-ctrl" id="btn-toggle-mic" title="Mute/Unmute">🎙️</button>
       <button class="btn-call-ctrl" id="btn-toggle-cam" title="Camera On/Off">📷</button>
       <button class="btn-call-ctrl" id="btn-toggle-share" title="Share Screen">🖥️</button>
+      <button class="btn-call-ctrl" id="btn-record-call" title="Record Screen">⏺️</button>
       <button class="btn-call-ctrl end-call" id="btn-end-call" title="End Call">📞</button>
     </div>
   </div>
@@ -670,12 +740,22 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/javascript-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/anyword-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/edit/closebrackets.min.js"></script>
+  
+  <script src="https://unpkg.com/jshint@2.13.6/dist/jshint.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/lint/lint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/lint/javascript-lint.min.js"></script>
 
   <script src="js/voiceRecorder.js"></script>
   <script src="js/mediaCall.js"></script>
   <script src="js/extensions.js"></script>
+  <script src="js/whiteboard.js"></script>
   <script src="js/codeEditor.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2"></script>
 
   <!-- Floating Particles Script -->
   <script>
