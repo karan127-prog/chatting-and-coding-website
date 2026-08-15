@@ -299,6 +299,7 @@ async function callRealAIProvider(provider, apiKey, model, systemInstruction, pr
       })
     });
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Gemini API Error');
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return [ `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n` ];
   }
