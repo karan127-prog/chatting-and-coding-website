@@ -163,14 +163,14 @@ app.post('/api/ai-copilot', async (req, res) => {
       // Default to gemini if the key format is unrecognized
       const activeProvider = provider || (keyToUse.startsWith('sk-or-') ? 'openrouter' : keyToUse.startsWith('gsk_') ? 'groq' : keyToUse.startsWith('sk-') ? 'openai' : 'gemini');
       
+      const aiStream = await callRealAIProvider(activeProvider, keyToUse, model, systemInstruction, promptPayload);
+      
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive'
       });
 
-      const aiStream = await callRealAIProvider(activeProvider, keyToUse, model, systemInstruction, promptPayload);
-      
       for await (const chunk of aiStream) {
         res.write(chunk);
       }
