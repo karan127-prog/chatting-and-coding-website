@@ -225,7 +225,7 @@ builtins.input = custom_input
     document.getElementById('btn-ask-copilot')?.addEventListener('click', () => {
       const input = document.getElementById('copilot-custom-prompt');
       if (input && input.value.trim() !== '') {
-        this.executeAIAction('explain', input.value.trim());
+        if (this.extensions) this.extensions.askAICopilot('explain', input.value.trim());
         input.value = '';
       }
     });
@@ -233,19 +233,19 @@ builtins.input = custom_input
     // AI Context Menu Buttons
     document.getElementById('btn-ai-explain')?.addEventListener('click', () => {
       if (window.activeCodeSelection) {
-        this.executeAIAction('explain', 'Explain this specific block of code: \n' + window.activeCodeSelection);
+        if (this.extensions) this.extensions.askAICopilot('explain', 'Explain this specific block of code: \n' + window.activeCodeSelection);
       }
     });
 
     document.getElementById('btn-ai-fix')?.addEventListener('click', () => {
       if (window.activeCodeSelection) {
-        this.executeAIAction('fix', 'Fix any bugs in this code snippet: \n' + window.activeCodeSelection);
+        if (this.extensions) this.extensions.askAICopilot('fix', 'Fix any bugs in this code snippet: \n' + window.activeCodeSelection);
       }
     });
 
     document.getElementById('btn-ai-convert-py')?.addEventListener('click', () => {
       if (window.activeCodeSelection) {
-        this.executeAIAction('explain', 'Convert this code to Python 3: \n' + window.activeCodeSelection);
+        if (this.extensions) this.extensions.askAICopilot('explain', 'Convert this code to Python 3: \n' + window.activeCodeSelection);
       }
     });
 
