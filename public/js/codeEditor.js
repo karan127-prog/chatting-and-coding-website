@@ -225,7 +225,7 @@ builtins.input = custom_input
     document.getElementById('btn-ask-copilot')?.addEventListener('click', () => {
       const input = document.getElementById('copilot-custom-prompt');
       if (input && input.value.trim() !== '') {
-        if (this.extensions) this.extensions.askAICopilot('explain', input.value.trim());
+        if (this.extensions) this.extensions.askAICopilot('custom', input.value.trim());
         input.value = '';
       }
     });
