@@ -390,6 +390,19 @@ builtins.input = custom_input
     });
   }
 
+  escapeHTML(str) {
+    if (!str) return '';
+    return str.replace(/[&<>'"]/g, 
+      tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag)
+    );
+  }
+
   performSearch() {
     const qInput = document.getElementById('search-query-input');
     const badge  = document.getElementById('search-match-badge');
