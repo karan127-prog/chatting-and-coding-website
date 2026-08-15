@@ -179,8 +179,10 @@ app.post('/api/ai-copilot', async (req, res) => {
     } catch (apiErr) {
       console.error('[AI Copilot API Error]:', apiErr.message);
       // Fallback to built-in fallback engine below if API key fails
-      result.markdown = `> ⚠️ **Notice: No API Key Provided / Connection Error**\n\n> *Please configure a valid API key (Gemini, OpenAI, OpenRouter) in the AI Key config menu for fully dynamic, intelligent code generation.*\n\nFalling back to built-in template code analysis engine below:\n`;
+      result.markdown = `> ⚠️ **Notice: API Connection Error**\n\n> *Your configured API key failed to connect. Ensure it is valid.*\n\nFalling back to built-in template engine:\n`;
     }
+  } else {
+    result.markdown = `> ⚠️ **Notice: No API Key Provided**\n\n> *Please configure a valid API key (e.g. GEMINI_API_KEY) in your Render Environment Variables for real, intelligent AI responses.*\n\nShowing built-in template response:\n\n`;
   }
 
   // Built-in intelligent engine fallback
