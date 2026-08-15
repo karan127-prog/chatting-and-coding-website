@@ -101,6 +101,7 @@ app.get('/api/admin/users', async (req, res) => {
 app.delete('/api/admin/users/:id', async (req, res) => {
   try {
     await DatabaseAPI.deleteUser(req.params.id);
+    io.emit('force_logout', { userId: req.params.id });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

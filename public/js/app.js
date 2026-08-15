@@ -490,6 +490,13 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('kicked_from_room', ({message})=>{ currentRoom=null; isHostOfRoom=false; showLobbyView(); showToast(message,'error'); });
   socket.on('room_members_updated', members=>renderRoomMembers(members||[]));
   socket.on('rooms_updated', rooms=>{ activeRoomsList=rooms; renderChannelsList(rooms); fetchAndRenderLobbyRooms(); const s=document.getElementById('stat-active-rooms');if(s) s.innerText=rooms.length; });
+  socket.on('force_logout', data => {
+    if (currentUser.token === data.userId) {
+      alert("Your account has been deleted by an administrator.");
+      document.getElementById('lobby-btn-logout')?.click();
+      setTimeout(() => location.reload(), 1000);
+    }
+  });
   socket.on('message_received', msg=>{ if(currentRoom&&msg.roomId===currentRoom.id){ appendSingleMessage(msg); scrollToBottom(); if(!msg.isSystem&&msg.user&&msg.user.id!==socket.id) playSoundEffect('message'); } });
   socket.on('reaction_updated', ({messageId,roomId,reactions})=>{ if(currentRoom&&roomId===currentRoom.id){const c=document.querySelector('[data-message-id="'+messageId+'"]');if(c){const r=c.querySelector('.reactions-row');if(r) r.innerHTML=renderReactionsHTML(messageId,roomId,reactions);}} });
   socket.on('user_typing', ({roomId,username,isTyping})=>{ if(currentRoom&&roomId===currentRoom.id){if(elTypingBar) elTypingBar.style.visibility=isTyping?'visible':'hidden';if(isTyping&&elTypingText) elTypingText.innerText=username+' is typing…';} });
