@@ -189,8 +189,50 @@ builtins.input = custom_input
         if (panelName === 'extensions') {
           this.renderExtensionsList();
         }
+        
+        if (panelName === 'whiteboard') {
+          if (window.switchViewMode) window.switchViewMode('whiteboard');
+          return;
+        }
       });
     });
+
+    // Search and Replace Logic
+    const searchInput = document.getElementById('search-query-input');
+    const replaceInput = document.getElementById('replace-query-input');
+    const btnReplaceNext = document.getElementById('btn-exec-replace-next');
+    const btnReplaceAll = document.getElementById('btn-exec-replace');
+
+    btnReplaceAll?.addEventListener('click', () => {
+      if (!this.editor) return;
+      const query = searchInput?.value;
+      const replacement = replaceInput?.value;
+      if (!query) return;
+      const content = this.editor.getValue();
+      const newContent = content.split(query).join(replacement);
+      if (content !== newContent) {
+        this.editor.setValue(newContent);
+        window.showToast?.('Replaced all occurrences!', 'success');
+      } else {
+        window.showToast?.('No matches found.', 'info');
+      }
+    });
+
+    btnReplaceNext?.addEventListener('click', () => {
+      if (!this.editor) return;
+      const query = searchInput?.value;
+      const replacement = replaceInput?.value;
+      if (!query) return;
+      const content = this.editor.getValue();
+      const newContent = content.replace(query, replacement);
+      if (content !== newContent) {
+        this.editor.setValue(newContent);
+        window.showToast?.('Replaced one occurrence!', 'success');
+      } else {
+        window.showToast?.('No matches found.', 'info');
+      }
+    });
+
 
     // Format Document Button (Prettier)
     document.getElementById('btn-format-doc')?.addEventListener('click', () => {
@@ -253,13 +295,16 @@ builtins.input = custom_input
     this.sessionHistory = [];
     setInterval(() => {
       const activeFile = this.getActiveFile();
-      if (activeFile && activeFile.content.trim() !== '') {
-        const lastSnapshot = this.sessionHistory[this.sessionHistory.length - 1];
-        if (!lastSnapshot || lastSnapshot.content !== activeFile.content) {
-          this.sessionHistory.push({
-            timestamp: new Date().toLocaleTimeString(),
-            content: activeFile.content
-          });
+      if (activeFile && this.editor) {
+        const currentContent = this.editor.getValue();
+        if (currentContent.trim() !== '') {
+          const lastSnapshot = this.sessionHistory[this.sessionHistory.length - 1];
+          if (!lastSnapshot || lastSnapshot.content !== currentContent) {
+            this.sessionHistory.push({
+              timestamp: new Date().toLocaleTimeString(),
+              content: currentContent
+            });
+          }
         }
       }
     }, 10000); // Snapshot every 10 seconds if changed

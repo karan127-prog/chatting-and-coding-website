@@ -327,6 +327,56 @@ const DatabaseAPI = {
     });
   },
 
+  // Admin & Deletion Methods
+  deleteRoom: (roomId) => {
+    return new Promise((resolve, reject) => {
+      if (jsonStore.rooms[roomId]) {
+        delete jsonStore.rooms[roomId];
+        saveJsonFallback();
+      }
+      if (!useJsonFallback && db) {
+        db.run('DELETE FROM rooms WHERE id = ?', [roomId], (err) => {
+          if (err) return reject(err);
+          // Also delete related code_files and messages
+          db.run('DELETE FROM code_files WHERE room_id = ?', [roomId]);
+          db.run('DELETE FROM messages WHERE room_id = ?', [roomId]);
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  },
+
+  getAllUsers: () => {
+    return new Promise((resolve) => {
+      if (useJsonFallback || !db) {
+        return resolve(jsonStore.users || []);
+      }
+      db.all('SELECT id, username, created_at FROM users', [], (err, rows) => {
+        if (err || !rows) resolve(jsonStore.users || []);
+        else resolve(rows);
+      });
+    });
+  },
+
+  deleteUser: (userId) => {
+    return new Promise((resolve, reject) => {
+      if (jsonStore.users) {
+        jsonStore.users = jsonStore.users.filter(u => u.id !== userId);
+        saveJsonFallback();
+      }
+      if (!useJsonFallback && db) {
+        db.run('DELETE FROM users WHERE id = ?', [userId], (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  },
+
   // Messages
   getRoomMessages: (roomId) => {
     return new Promise((resolve) => {

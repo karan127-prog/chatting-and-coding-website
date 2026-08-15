@@ -103,6 +103,9 @@
           <button class="btn-lobby-action" id="lobby-btn-create-room">
             ➕ Create Custom Room
           </button>
+          <button class="btn-lobby-action" id="lobby-btn-admin-panel" style="background:rgba(168,85,247,0.1); color:#a855f7; border:1px solid rgba(168,85,247,0.3);">
+            🛡️ Admin Panel
+          </button>
           <div id="lobby-auth-user" style="display:flex; align-items:center; gap:8px;">
             <div class="user-profile-badge" id="lobby-profile-badge" style="padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:20px;">
               <div class="user-avatar" id="lobby-user-avatar">⚡</div>
@@ -765,6 +768,20 @@
       <div class="modal-actions">
         <button class="btn-header-action" id="btn-close-profile-modal">Cancel</button>
         <button class="btn-header-action primary" id="btn-save-profile">Save Changes ✨</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADMIN DASHBOARD -->
+  <div class="modal-overlay" id="modal-admin-dashboard">
+    <div class="modal-box" style="width:600px;">
+      <div class="modal-title">Admin Dashboard 🛡️</div>
+      <div class="modal-subtitle">Manage registered users</div>
+      <div id="admin-user-list" style="margin-top:15px; display:flex; flex-direction:column; gap:8px; max-height:400px; overflow-y:auto;">
+        <!-- User list rendered here -->
+      </div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button class="btn-header-action" id="btn-close-admin-modal">Close</button>
       </div>
     </div>
   </div>

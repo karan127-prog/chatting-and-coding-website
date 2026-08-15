@@ -79,6 +79,34 @@ app.get('/api/rooms', async (req, res) => {
   }
 });
 
+// Admin & Deletion APIs
+app.delete('/api/rooms/:id', async (req, res) => {
+  try {
+    await DatabaseAPI.deleteRoom(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const users = await DatabaseAPI.getAllUsers();
+    res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/users/:id', async (req, res) => {
+  try {
+    await DatabaseAPI.deleteUser(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Code Execution Endpoint
 app.post('/api/run-code', (req, res) => {
   const { code, language, filename } = req.body;

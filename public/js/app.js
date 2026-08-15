@@ -330,9 +330,24 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div style="margin-bottom:2px;">👤 '+(room.hostUsername||'Host')+'</div>'+
             '<div>'+cntH+'</div>'+
           '</div>'+
-          '<button class="btn-join-room-card">'+(prot?'🔒 Enter Password':'→ Join Room')+'</button>'+
+          '<div style="display:flex; gap:6px;">'+
+            ((room.host_username === currentUser.username || room.hostUsername === currentUser.username) ? '<button class="btn-delete-room-card" style="background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); color:#ef4444; border-radius:6px; padding:8px 12px; font-weight:600; cursor:pointer;" data-id="'+room.id+'" title="Delete Room">🗑️</button>' : '') +
+            '<button class="btn-join-room-card">'+(prot?'🔒 Enter Password':'→ Join Room')+'</button>'+
+          '</div>'+
         '</div>';
       card.querySelector('.btn-join-room-card').addEventListener('click', ()=>handleJoinRoomClick(room));
+      card.querySelector('.btn-delete-room-card')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm("Are you sure you want to delete this room? This cannot be undone.")) {
+          try {
+            await fetch(`/api/rooms/${room.id}`, { method: 'DELETE' });
+            showToast("Room deleted.", "success");
+            fetchAndRenderLobbyRooms();
+          } catch (err) {
+            showToast("Failed to delete room.", "error");
+          }
+        }
+      });
       grid.appendChild(card);
     });
   };
@@ -593,4 +608,62 @@ document.addEventListener('DOMContentLoaded', () => {
   // Boot — show lobby immediately, no popup
   updateAuthUI();
   showLobbyView();
+
+  // Admin Dashboard Logic
+  const modalAdminDashboard = document.getElementById('modal-admin-dashboard');
+  document.getElementById('lobby-btn-admin-panel')?.addEventListener('click', () => {
+    if (!requireAuth()) return;
+    const pwd = prompt("Enter Admin Password to continue:");
+    if (pwd !== "admin123") {
+      showToast("Incorrect password!", "error");
+      return;
+    }
+    openModal(modalAdminDashboard);
+    fetchAndRenderAdminUsers();
+  });
+
+  document.getElementById('btn-close-admin-modal')?.addEventListener('click', () => {
+    closeModal(modalAdminDashboard);
+  });
+
+  const fetchAndRenderAdminUsers = async () => {
+    try {
+      const res = await fetch('/api/admin/users');
+      const data = await res.json();
+      const list = document.getElementById('admin-user-list');
+      if (list) {
+        list.innerHTML = '';
+        if (data.users.length === 0) {
+          list.innerHTML = '<div style="color:var(--text-muted);">No users found.</div>';
+          return;
+        }
+        data.users.forEach(u => {
+          const div = document.createElement('div');
+          div.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;';
+          div.innerHTML = `
+            <div>
+              <div style="font-weight:600;">${u.username}</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">ID: ${u.id} | Created: ${new Date(u.created_at).toLocaleString()}</div>
+            </div>
+            <button class="btn-delete-user" data-id="${u.id}" style="background:rgba(239,68,68,0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Delete</button>
+          `;
+          list.appendChild(div);
+        });
+        
+        document.querySelectorAll('.btn-delete-user').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            if (confirm("Are you sure you want to delete this user?")) {
+              const id = e.target.getAttribute('data-id');
+              await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+              showToast("User deleted.", "success");
+              fetchAndRenderAdminUsers();
+            }
+          });
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to fetch users", "error");
+    }
+  };
 });
