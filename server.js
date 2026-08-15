@@ -273,8 +273,14 @@ app.post('/api/ai-copilot', async (req, res) => {
     result.generatedCode = testCode;
     result.markdown += `### 🧪 AI Generated Unit Tests\n\n\`\`\`${lang}\n${testCode}\n\`\`\``;
   }
-
-  res.json(result);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: result.markdown } }] })}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
 });
 
 // Helper for Real AI Provider Calls
@@ -291,8 +297,8 @@ async function callRealAIProvider(provider, apiKey, model, systemInstruction, pr
       })
     });
     const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'Gemini API Error');
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return [ `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n` ];
   }
 
   // 2. OpenAI / OpenRouter / Groq APIs
