@@ -5,6 +5,18 @@
 document.addEventListener('DOMContentLoaded', () => {
   const socket = io();
 
+  // Global Theme Customizer
+  const themeSelect = document.getElementById('global-theme-select');
+  const savedTheme = localStorage.getItem('pulsechat_theme') || 'aurora';
+  document.body.setAttribute('data-theme', savedTheme);
+  if (themeSelect) {
+    themeSelect.value = savedTheme;
+    themeSelect.addEventListener('change', (e) => {
+      document.body.setAttribute('data-theme', e.target.value);
+      localStorage.setItem('pulsechat_theme', e.target.value);
+    });
+  }
+
   // State
   let currentUser = {
     username: '',
@@ -33,6 +45,33 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
   }
 
+  const updateAuthUI = () => {
+    const userContainer = document.getElementById('lobby-auth-user');
+    const guestContainer = document.getElementById('lobby-auth-guest');
+    if (currentUser.username) {
+      if(userContainer) userContainer.style.display = 'flex';
+      if(guestContainer) guestContainer.style.display = 'none';
+      const b=document.getElementById('lobby-username'); if(b) b.innerText=currentUser.username;
+      const av=document.getElementById('lobby-user-avatar'); if(av) av.innerText=(currentUser.username[0]||'?').toUpperCase();
+    } else {
+      if(userContainer) userContainer.style.display = 'none';
+      if(guestContainer) guestContainer.style.display = 'flex';
+    }
+  };
+
+  const requireAuth = (requireFullAccount = false) => {
+    if (!currentUser.username) {
+      showToast('Please login or provide a guest name.', 'error');
+      authView.style.display = 'flex';
+      return false;
+    }
+    if (requireFullAccount && !currentUser.token) {
+      showToast('Guest users cannot do this. Please log in or create an account.', 'error');
+      authView.style.display = 'flex';
+      return false;
+    }
+    return true;
+  };
   const handleAuth = async (action) => {
     const username = document.getElementById('auth-username').value.trim();
     const password = document.getElementById('auth-password').value.trim();
@@ -58,7 +97,9 @@ document.addEventListener('DOMContentLoaded', () => {
       authError.style.display = 'none';
       authView.style.display = 'none';
       socket.emit('register_user', currentUser);
+      socket.emit('user_join', currentUser);
       socket._registered = true;
+      updateAuthUI();
       fetchAndRenderLobbyRooms();
       showToast(`Welcome back, ${currentUser.username}!`, 'success');
     } catch (err) {
@@ -72,6 +113,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('auth-password')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleAuth('login');
   });
+  document.getElementById('btn-auth-guest')?.addEventListener('click', () => {
+    const guestName = document.getElementById('auth-guest-name').value.trim();
+    if (!guestName) {
+      authError.textContent = 'Please enter a display name to join as a guest.';
+      authError.style.display = 'block';
+      return;
+    }
+    currentUser.username = guestName;
+    currentUser.token = ''; 
+    socket.emit('register_user', currentUser);
+    socket.emit('user_join', currentUser);
+    socket._registered = true;
+    updateAuthUI();
+    authError.style.display = 'none';
+    authView.style.display = 'none';
+    showToast(`Welcome, Guest ${guestName}!`, 'success');
+  });
+
+  document.getElementById('lobby-btn-login-prompt')?.addEventListener('click', () => { authView.style.display = 'flex'; });
+  document.getElementById('lobby-btn-signup-prompt')?.addEventListener('click', () => { authView.style.display = 'flex'; });
+  document.getElementById('btn-auth-close')?.addEventListener('click', () => { authView.style.display = 'none'; });
 
   // Managers
   const voiceRecorder    = new window.VoiceRecorder();
@@ -277,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Join Room Flow
   const handleJoinRoomClick = room => {
+    if (!requireAuth()) return;
     if (room.hasPassword) {
       _pendingJoinRoom=room;
       const sub=document.getElementById('join-room-modal-subtitle'); if(sub) sub.innerText='Enter password for #'+room.name;
@@ -300,8 +363,25 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.filter-pills .pill').forEach(pill => {
     pill.addEventListener('click', ()=>{ document.querySelectorAll('.filter-pills .pill').forEach(p=>p.classList.remove('active')); pill.classList.add('active'); fetchAndRenderLobbyRooms(); });
   });
-  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ socket.emit('request_join_room',{roomId:'general',password:''}); setTimeout(()=>switchViewMode('code'),400); });
-  document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>openModal(modalCreateRoom));
+  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ if (!requireAuth()) return; socket.emit('request_join_room',{roomId:'general',password:''}); setTimeout(()=>switchViewMode('code'),400); });
+  document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>{ if (!requireAuth(true)) return; openModal(modalCreateRoom); });
+
+  // Quick Join
+  const quickJoinInput = document.getElementById('lobby-quick-join-input');
+  const handleQuickJoin = () => {
+    if (!requireAuth()) return;
+    const roomId = quickJoinInput?.value.trim().toLowerCase();
+    if (!roomId) return;
+    const room = activeRoomsList.find(r => r.id === roomId || r.name.toLowerCase() === roomId);
+    if (room) {
+      handleJoinRoomClick(room);
+    } else {
+      socket.emit('request_join_room', { roomId, password: '' });
+    }
+    if (quickJoinInput) quickJoinInput.value = '';
+  };
+  document.getElementById('lobby-quick-join-btn')?.addEventListener('click', handleQuickJoin);
+  quickJoinInput?.addEventListener('keydown', e => { if (e.key === 'Enter') handleQuickJoin(); });
 
   // Socket
   socket.on('connect', ()=>{ 
@@ -494,6 +574,23 @@ document.addEventListener('DOMContentLoaded', () => {
     mediaCallManager.startCall(currentRoom.id, currentUser);
   });
 
+  // Logout / Switch Account
+  const handleLogout = () => {
+    localStorage.removeItem('pulsechat_user');
+    window.location.reload();
+  };
+  document.getElementById('lobby-btn-logout')?.addEventListener('click', handleLogout);
+  document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+
+  // Copy Room ID
+  document.getElementById('btn-copy-room-id')?.addEventListener('click', () => {
+    if (currentRoom) {
+      navigator.clipboard.writeText(currentRoom.id);
+      showToast('Room ID copied to clipboard!', 'success');
+    }
+  });
+
   // Boot — show lobby immediately, no popup
+  updateAuthUI();
   showLobbyView();
 });

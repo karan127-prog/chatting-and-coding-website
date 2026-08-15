@@ -46,7 +46,20 @@
         <input type="password" id="auth-password" class="form-input" placeholder="Password" style="margin-bottom:20px; width:100%; box-sizing:border-box;">
         
         <button id="btn-auth-login" class="btn-primary" style="width:100%; margin-bottom:15px; padding:12px;">Login</button>
-        <button id="btn-auth-signup" class="btn-secondary" style="width:100%; padding:12px;">Create Account</button>
+        <button id="btn-auth-signup" class="btn-secondary" style="width:100%; padding:12px; margin-bottom:15px;">Create Account</button>
+        
+        <div style="margin: 20px 0; display:flex; align-items:center; gap:10px;">
+          <hr style="flex:1; border:none; border-top:1px solid rgba(255,255,255,0.1);">
+          <span style="font-size:0.8rem; color:#888;">OR GUEST JOIN</span>
+          <hr style="flex:1; border:none; border-top:1px solid rgba(255,255,255,0.1);">
+        </div>
+        
+        <div style="display:flex; gap:8px; margin-bottom:15px;">
+          <input type="text" id="auth-guest-name" class="form-input" placeholder="Display Name (Guest)" style="flex:1; box-sizing:border-box;">
+          <button id="btn-auth-guest" class="btn-lobby-action" style="padding:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2);">Continue as Guest</button>
+        </div>
+        
+        <button id="btn-auth-close" class="btn-lobby-action" style="width:100%; padding:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#aaa;">Return to Lobby</button>
         
         <div id="auth-error-msg" style="color:#ff5f56; margin-top:15px; font-size:0.9rem; display:none;"></div>
       </div>
@@ -78,15 +91,30 @@
         </div>
 
         <div class="lobby-nav-actions">
+          <select class="form-input" id="global-theme-select" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; width: auto; background: rgba(255,255,255,0.05);">
+            <option value="aurora">Aurora Dark</option>
+            <option value="cyberpunk">Neon Cyberpunk</option>
+            <option value="dracula">Dracula</option>
+            <option value="matrix">Matrix Terminal</option>
+          </select>
           <button class="btn-lobby-action primary" id="lobby-btn-scratchpad">
             ⚡ Instant Studio Sandbox
           </button>
           <button class="btn-lobby-action" id="lobby-btn-create-room">
             ➕ Create Custom Room
           </button>
-          <div class="user-profile-badge" id="lobby-profile-badge" style="padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:20px;">
-            <div class="user-avatar" id="lobby-user-avatar">⚡</div>
-            <span id="lobby-username">Developer</span>
+          <div id="lobby-auth-user" style="display:flex; align-items:center; gap:8px;">
+            <div class="user-profile-badge" id="lobby-profile-badge" style="padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:20px;">
+              <div class="user-avatar" id="lobby-user-avatar">⚡</div>
+              <span id="lobby-username">Developer</span>
+            </div>
+            <button class="btn-lobby-action" id="lobby-btn-logout" title="Logout / Switch Account" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding: 8px 16px;">
+              🚪 Logout
+            </button>
+          </div>
+          <div id="lobby-auth-guest" style="display:none; align-items:center; gap:8px;">
+            <button class="btn-lobby-action" id="lobby-btn-login-prompt" style="padding:8px 16px; border:1px solid rgba(255,255,255,0.2);">Login</button>
+            <button class="btn-lobby-action primary" id="lobby-btn-signup-prompt" style="padding:8px 16px;">Sign Up</button>
           </div>
         </div>
       </header>
@@ -114,25 +142,30 @@
 
   <!-- JS Dependencies -->
       <section class="lobby-hero">
-        <h1 class="hero-title">Collaborate, Code & Chat in <span class="highlight-text">Real-Time</span></h1>
+        <h1 class="hero-title"><span class="hero-title-gradient">Collaborate, Code & Chat</span> in <span class="highlight-text">Real-Time</span></h1>
         <p class="hero-subtitle">
           Supercharged with a full CodeCanvas IDE, Extensions Marketplace (Prettier, ESLint, AI Copilot, Live Web Preview), SQLite persistent database, WebRTC video calling, and protected rooms.
         </p>
 
         <!-- Room Search & Filter Bar -->
-        <div class="lobby-search-bar">
-          <div class="search-input-wrapper">
+        <div class="lobby-search-bar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <div class="search-input-wrapper" style="flex:1; min-width:300px;">
             <span class="search-icon">🔍</span>
             <input type="text" id="lobby-room-search" placeholder="Search rooms by name, tag (#python, #javascript, #web)...">
           </div>
 
-          <div class="filter-pills" id="lobby-filter-pills">
-            <button class="pill active" data-filter="all">All Rooms</button>
-            <button class="pill" data-filter="python">🐍 Python</button>
-            <button class="pill" data-filter="javascript">⚡ JavaScript</button>
-            <button class="pill" data-filter="web">🌐 Web & HTML</button>
-            <button class="pill" data-filter="protected">🔒 Protected</button>
+          <div class="quick-join-wrapper" style="display:flex; gap:8px;">
+            <input type="text" id="lobby-quick-join-input" placeholder="Room ID..." style="padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.4); color:#fff; width:140px;">
+            <button id="lobby-quick-join-btn" class="btn-lobby-action primary" style="border-radius:12px;">🚀 Quick Join</button>
           </div>
+        </div>
+        
+        <div class="filter-pills" id="lobby-filter-pills" style="margin-top:16px;">
+          <button class="pill active" data-filter="all">All Rooms</button>
+          <button class="pill" data-filter="python">🐍 Python</button>
+          <button class="pill" data-filter="javascript">⚡ JavaScript</button>
+          <button class="pill" data-filter="web">🌐 Web & HTML</button>
+          <button class="pill" data-filter="protected">🔒 Protected</button>
         </div>
       </section>
 
@@ -183,6 +216,7 @@
           <div class="user-status-text" id="current-status-text">Online</div>
         </div>
         <button class="btn-profile-edit" id="btn-edit-profile" title="Edit Profile">⚙️</button>
+        <button class="btn-profile-logout" id="btn-logout" title="Logout / Switch Account" style="background:transparent; border:none; color:#ef4444; cursor:pointer; margin-left:4px; font-size:1.1rem;">🚪</button>
       </div>
 
       <!-- Sidebar Scrollable Content -->
@@ -220,7 +254,10 @@
         <div class="chat-room-info">
           <div class="room-badge-icon" id="active-room-icon">💬</div>
           <div>
-            <div class="room-title-name" id="active-room-title">#general</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="room-title-name" id="active-room-title" style="margin:0;">#general</div>
+              <button id="btn-copy-room-id" title="Copy Invite Code" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-muted); cursor:pointer; font-size:0.65rem; padding: 2px 6px; transition:all 0.2s;">📋 Copy ID</button>
+            </div>
             <div class="room-desc" id="active-room-desc">Global hangout space for everyone</div>
           </div>
         </div>

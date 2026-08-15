@@ -1965,6 +1965,11 @@ select.form-input {
   padding-right: 32px;
 }
 
+select.form-input option {
+  background-color: #1e1e1e;
+  color: #ffffff;
+}
+
 /* ==========================================================================
    3. FRONT PAGE LOBBY (Landing Dashboard & Room Portal)
    ========================================================================== */
@@ -2604,3 +2609,121 @@ i.fa-solid, i.fa-brands {
   display: inline-block;
   line-height: inherit;
 }
+
+/* ==========================================================================
+   NEW THEMES AND FASCINATING UI UPGRADES
+   ========================================================================== */
+
+/* Theme Overrides */
+[data-theme="aurora"] {
+  --bg-void: #000000;
+  --accent-violet: #8b5cf6;
+  --accent-cyan: #38bdf8;
+  --gradient-btn: linear-gradient(135deg, var(--accent-violet), var(--accent-cyan));
+  --gradient-btn-hover: linear-gradient(135deg, #7c3aed, #0ea5e9);
+  --gradient-aurora: linear-gradient(135deg, rgba(139,92,246,0.5), rgba(56,189,248,0.5));
+  --gradient-text: linear-gradient(to right, #e2e8f0, #f8fafc);
+  --hero-gradient: linear-gradient(to right, #8b5cf6, #38bdf8, #8b5cf6);
+  --mac-bg-1: #5B2C6F;
+  --mac-bg-2: #1A5276;
+  --mac-bg-3: #154360;
+}
+
+[data-theme="cyberpunk"] {
+  --bg-void: #080808;
+  --accent-violet: #ff003c;
+  --accent-cyan: #00f0ff;
+  --gradient-btn: linear-gradient(135deg, #ff003c, #00f0ff);
+  --gradient-btn-hover: linear-gradient(135deg, #d40032, #00c8d4);
+  --gradient-aurora: linear-gradient(135deg, rgba(255,0,60,0.5), rgba(0,240,255,0.5));
+  --gradient-text: linear-gradient(to right, #fdf4ff, #fae8ff);
+  --hero-gradient: linear-gradient(to right, #ff003c, #00f0ff, #ff003c);
+  --mac-bg-1: #4a0011;
+  --mac-bg-2: #00363a;
+  --mac-bg-3: #2d0016;
+}
+
+[data-theme="dracula"] {
+  --bg-void: #282a36;
+  --bg-card: rgba(68, 71, 90, 0.5);
+  --bg-card-hover: rgba(68, 71, 90, 0.8);
+  --accent-violet: #bd93f9;
+  --accent-cyan: #8be9fd;
+  --gradient-btn: linear-gradient(135deg, #bd93f9, #ff79c6);
+  --gradient-btn-hover: linear-gradient(135deg, #a67be0, #e66ec3);
+  --gradient-aurora: linear-gradient(135deg, rgba(189,147,249,0.5), rgba(255,121,198,0.5));
+  --gradient-text: linear-gradient(to right, #f8f8f2, #f8f8f2);
+  --hero-gradient: linear-gradient(to right, #bd93f9, #8be9fd, #bd93f9);
+  --mac-bg-1: #44475a;
+  --mac-bg-2: #282a36;
+  --mac-bg-3: #6272a4;
+}
+
+[data-theme="matrix"] {
+  --bg-void: #000000;
+  --accent-violet: #00ff41;
+  --accent-cyan: #008f11;
+  --gradient-btn: linear-gradient(135deg, #008f11, #00ff41);
+  --gradient-btn-hover: linear-gradient(135deg, #00600b, #00d034);
+  --gradient-aurora: linear-gradient(135deg, rgba(0,143,17,0.5), rgba(0,255,65,0.5));
+  --gradient-text: linear-gradient(to right, #00ff41, #ccffcc);
+  --hero-gradient: linear-gradient(to right, #008f11, #00ff41, #008f11);
+  --mac-bg-1: #001a00;
+  --mac-bg-2: #000000;
+  --mac-bg-3: #003300;
+}
+
+/* Background Override */
+body::before {
+  background-color: var(--bg-void) !important;
+  background:
+    radial-gradient(ellipse 60% 70% at 20% 30%, var(--mac-bg-1, #5B2C6F) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 60% at 80% 70%, var(--mac-bg-2, #1A5276) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 80% at 50% 10%, var(--mac-bg-3, #154360) 0%, transparent 70%) !important;
+}
+
+/* Hero Gradient Animation */
+.hero-title-gradient {
+  background: var(--hero-gradient, linear-gradient(to right, #8b5cf6, #38bdf8, #8b5cf6));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% auto;
+  animation: shineGradient 4s linear infinite;
+}
+
+@keyframes shineGradient {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Fascinating Card Hover Effects */
+.room-card {
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+  animation: fadeInUpCascade 0.5s ease forwards;
+}
+
+.room-card:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5), 0 0 15px var(--gradient-aurora) !important;
+  border-color: var(--accent-violet) !important;
+}
+
+.btn-join-room-card {
+  position: relative;
+  z-index: 20;
+}
+
+/* Cascade Entrance Animation */
+@keyframes fadeInUpCascade {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+#lobby-rooms-grid .room-card:nth-child(1) { animation-delay: 0.05s; }
+#lobby-rooms-grid .room-card:nth-child(2) { animation-delay: 0.1s; }
+#lobby-rooms-grid .room-card:nth-child(3) { animation-delay: 0.15s; }
+#lobby-rooms-grid .room-card:nth-child(4) { animation-delay: 0.2s; }
+#lobby-rooms-grid .room-card:nth-child(5) { animation-delay: 0.25s; }
+#lobby-rooms-grid .room-card:nth-child(6) { animation-delay: 0.3s; }
+
