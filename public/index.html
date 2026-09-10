@@ -10,7 +10,7 @@
   </script>
   <title>CodeCanvas — Code Studio & Front Page Portal</title>
   <meta name="description" content="Next-gen real-time group chat, Code Studio editor with Extensions Marketplace, SQLite persistence, and WebRTC video calling.">
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=9">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/darcula.min.css">
@@ -80,39 +80,21 @@
           </div>
           <div class="brand-text">
             <div class="brand-title" style="font-size:1.15rem;">CodeCanvas <span class="badge-pro">STUDIO</span></div>
-            <div class="brand-subtitle">Real-time Code & Chat Ecosystem</div>
           </div>
         </div>
 
-        <div class="lobby-nav-stats">
-          <div class="stat-item"><span class="stat-val" id="stat-active-rooms">3</span> Active Rooms</div>
-          <div class="stat-item"><span class="stat-val" id="stat-active-users">1</span> Online Devs</div>
-          <div class="stat-item"><span class="stat-val" id="stat-db-status">⚡ SQLite DB Active</span></div>
-        </div>
-
         <div class="lobby-nav-actions">
-          <select class="form-input" id="global-theme-select" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; width: auto; background: rgba(255,255,255,0.05);">
-            <option value="aurora">Aurora Dark</option>
-            <option value="cyberpunk">Neon Cyberpunk</option>
-            <option value="dracula">Dracula</option>
-            <option value="matrix">Matrix Terminal</option>
-          </select>
           <button class="btn-lobby-action primary" id="lobby-btn-scratchpad">
             ⚡ Instant Studio Sandbox
           </button>
           <button class="btn-lobby-action" id="lobby-btn-create-room">
             ➕ Create Custom Room
           </button>
-          <button class="btn-lobby-action" id="lobby-btn-admin-panel" style="background:rgba(168,85,247,0.1); color:#a855f7; border:1px solid rgba(168,85,247,0.3);">
-            🛡️ Admin Panel
-          </button>
           <div id="lobby-auth-user" style="display:flex; align-items:center; gap:8px;">
-            <div class="user-profile-badge" id="lobby-profile-badge" style="padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:20px;">
+            <button class="btn-profile-trigger" id="lobby-btn-profile" title="Profile & Settings">
               <div class="user-avatar" id="lobby-user-avatar">⚡</div>
               <span id="lobby-username">Developer</span>
-            </div>
-            <button class="btn-lobby-action" id="lobby-btn-logout" title="Logout / Switch Account" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding: 8px 16px;">
-              🚪 Logout
+              <span class="profile-dropdown-arrow">▾</span>
             </button>
           </div>
           <div id="lobby-auth-guest" style="display:none; align-items:center; gap:8px;">
@@ -122,44 +104,20 @@
         </div>
       </header>
 
-      <div class="modal-overlay" id="modal-time-travel">
-    <div class="modal-box" style="width:500px;">
-      <div class="modal-title">Time Travel ⏳</div>
-      <div class="modal-subtitle">Restore previous versions of this file</div>
-      <div id="time-travel-list" style="max-height:300px; overflow-y:auto; margin-top:15px; display:flex; flex-direction:column; gap:8px;"></div>
-      <div class="modal-actions" style="margin-top:20px;">
-        <button class="btn-header-action" id="btn-close-time-travel">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="ai-context-menu" style="display:none; position:absolute; z-index:9999; background:#1e293b; border:1px solid #334155; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.8); padding:8px 0; min-width:200px;">
-    <div class="ai-menu-item" id="btn-ai-explain" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🧠 Explain this Code</div>
-    <div class="ai-menu-item" id="btn-ai-fix" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🛠️ Fix Bugs</div>
-    <div class="ai-menu-item" id="btn-ai-convert-py" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🔄 Convert to Python</div>
-  </div>
-
-  <style>
-    .ai-menu-item:hover { background: #334155; color: #38bdf8 !important; }
-  </style>
-
-  <!-- JS Dependencies -->
+      <!-- Hero Section -->
       <section class="lobby-hero">
         <h1 class="hero-title"><span class="hero-title-gradient">Collaborate, Code & Chat</span> in <span class="highlight-text">Real-Time</span></h1>
-        <p class="hero-subtitle">
-          Supercharged with a full CodeCanvas IDE, Extensions Marketplace (Prettier, ESLint, AI Copilot, Live Web Preview), SQLite persistent database, WebRTC video calling, and protected rooms.
-        </p>
 
         <!-- Room Search & Filter Bar -->
-        <div class="lobby-search-bar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-          <div class="search-input-wrapper" style="flex:1; min-width:300px;">
+        <div class="lobby-search-bar">
+          <div class="search-input-wrapper">
             <span class="search-icon">🔍</span>
-            <input type="text" id="lobby-room-search" placeholder="Search rooms by name, tag (#python, #javascript, #web)...">
+            <input type="text" id="lobby-room-search" placeholder="Search rooms or tags (#python, #web)...">
           </div>
 
-          <div class="quick-join-wrapper" style="display:flex; gap:8px;">
-            <input type="text" id="lobby-quick-join-input" placeholder="Room ID..." style="padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.4); color:#fff; width:140px;">
-            <button id="lobby-quick-join-btn" class="btn-lobby-action primary" style="border-radius:12px;">🚀 Quick Join</button>
+          <div class="quick-join-wrapper">
+            <input type="text" id="lobby-quick-join-input" placeholder="Room ID...">
+            <button id="lobby-quick-join-btn" class="btn-lobby-action primary">🚀 Quick Join</button>
           </div>
         </div>
         
@@ -176,9 +134,9 @@
       <section class="lobby-rooms-section">
         <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h2 class="section-title">Environments</h2>
-          <div class="lobby-tabs" style="display:flex; gap:10px; background:rgba(255,255,255,0.05); padding:5px; border-radius:12px;">
-            <button id="tab-my-envs" class="btn-panel-btn active" style="border:none; padding:8px 16px;">My Environments</button>
-            <button id="tab-public-hubs" class="btn-panel-btn" style="border:none; padding:8px 16px; background:transparent;">Public Hubs</button>
+          <div class="lobby-tabs">
+            <button id="tab-public-hubs" class="lobby-tab-btn active">🌐 Public Hubs</button>
+            <button id="tab-my-envs" class="lobby-tab-btn">⚡ My Environments</button>
           </div>
         </div>
 
@@ -278,6 +236,11 @@
           </button>
           <button class="btn-header-action" id="btn-clear-chat" title="Clear View">
             🧹
+          </button>
+          <button class="btn-profile-trigger compact" id="chat-btn-profile" title="Profile & Settings">
+            <div class="user-avatar" id="chat-user-avatar">⚡</div>
+            <span id="chat-username">Developer</span>
+            <span class="profile-dropdown-arrow">▾</span>
           </button>
         </div>
       </header>
@@ -535,7 +498,7 @@
         <!-- Editor + Terminal Container -->
         <div class="studio-editor-container">
 
-          <div class="studio-editor-main" style="display: flex; flex-direction: column;">
+          <div class="studio-editor-main">
             <div class="studio-line-numbers" id="studio-line-numbers" style="display:none;"><div>1</div></div>
             <textarea
               class="studio-editor-textarea"
@@ -741,6 +704,25 @@
     </div>
   </div>
 
+  <!-- MODAL: TIME TRAVEL -->
+  <div class="modal-overlay" id="modal-time-travel">
+    <div class="modal-box" style="width:500px;">
+      <div class="modal-title">Time Travel ⏳</div>
+      <div class="modal-subtitle">Restore previous versions of this file</div>
+      <div id="time-travel-list" style="max-height:300px; overflow-y:auto; margin-top:15px; display:flex; flex-direction:column; gap:8px;"></div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button class="btn-header-action" id="btn-close-time-travel">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI CONTEXT MENU -->
+  <div id="ai-context-menu" style="display:none; position:absolute; z-index:9999; background:#1e293b; border:1px solid #334155; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.8); padding:8px 0; min-width:200px;">
+    <div class="ai-menu-item" id="btn-ai-explain" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🧠 Explain this Code</div>
+    <div class="ai-menu-item" id="btn-ai-fix" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🛠️ Fix Bugs</div>
+    <div class="ai-menu-item" id="btn-ai-convert-py" style="padding:10px 16px; cursor:pointer; font-size:0.85rem; color:#f1f5f9;">🔄 Convert to Python</div>
+  </div>
+
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- MODAL: EDIT USER PROFILE                              -->
   <!-- ═══════════════════════════════════════════════════════ -->
@@ -808,8 +790,92 @@
   <script src="js/mediaCall.js"></script>
   <script src="js/extensions.js"></script>
   <script src="js/whiteboard.js"></script>
-  <script src="js/codeEditor.js"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/codeEditor.js?v=8"></script>
+  <script src="js/app.js?v=11"></script>
+
+  <!-- Universal Profile & Settings Dropdown Menu -->
+  <div class="profile-dropdown-menu" id="profile-dropdown-menu" style="display:none;">
+    <!-- Profile Info Header -->
+    <div class="profile-menu-header">
+      <div class="profile-menu-avatar" id="menu-user-avatar">⚡</div>
+      <div class="profile-menu-meta">
+        <div class="profile-menu-name" id="menu-username">Developer</div>
+        <div class="profile-menu-status" id="menu-user-status">🟢 Online · Coding live</div>
+      </div>
+    </div>
+
+    <div class="profile-menu-divider"></div>
+
+    <!-- Account Section -->
+    <div class="profile-menu-section">
+      <div class="profile-menu-label">Account</div>
+      <button class="profile-menu-item" id="menu-btn-account">
+        <span class="menu-item-icon">👤</span>
+        <div class="menu-item-text">
+          <div class="menu-item-title">Account Profile</div>
+          <div class="menu-item-sub">Customize username, avatar & status</div>
+        </div>
+      </button>
+    </div>
+
+    <div class="profile-menu-divider"></div>
+
+    <!-- Theme Switcher Section -->
+    <div class="profile-menu-section">
+      <div class="profile-menu-label">Appearance & Theme</div>
+      <div class="profile-theme-grid">
+        <button class="profile-theme-chip" data-theme-id="light">☀️ Light</button>
+        <button class="profile-theme-chip" data-theme-id="aurora">🌌 Aurora</button>
+        <button class="profile-theme-chip" data-theme-id="cyberpunk">⚡ Cyber</button>
+        <button class="profile-theme-chip" data-theme-id="dracula">🧛 Dracula</button>
+        <button class="profile-theme-chip" data-theme-id="matrix">💻 Matrix</button>
+      </div>
+    </div>
+
+    <div class="profile-menu-divider"></div>
+
+    <!-- Other Settings Section -->
+    <div class="profile-menu-section">
+      <div class="profile-menu-label">Settings & Tools</div>
+      <button class="profile-menu-item" id="menu-btn-sound">
+        <span class="menu-item-icon" id="menu-sound-icon">🔔</span>
+        <div class="menu-item-text">
+          <div class="menu-item-title">Audio Effects</div>
+          <div class="menu-item-sub" id="menu-sound-sub">Message chimes enabled</div>
+        </div>
+        <span class="menu-toggle-pill on" id="menu-sound-pill">ON</span>
+      </button>
+
+      <button class="profile-menu-item" id="menu-btn-admin-shortcut" style="display:none;">
+        <span class="menu-item-icon">🛡️</span>
+        <div class="menu-item-text">
+          <div class="menu-item-title">Admin Dashboard</div>
+          <div class="menu-item-sub">Manage rooms & active users</div>
+        </div>
+      </button>
+    </div>
+
+    <div class="profile-menu-divider"></div>
+
+    <!-- Account Switch & Logout -->
+    <div class="profile-menu-section">
+      <button class="profile-menu-item" id="menu-btn-switch-account">
+        <span class="menu-item-icon">🔄</span>
+        <div class="menu-item-text">
+          <div class="menu-item-title">Switch Account</div>
+          <div class="menu-item-sub">Log in with different credentials</div>
+        </div>
+      </button>
+
+      <button class="profile-menu-item danger" id="menu-btn-logout">
+        <span class="menu-item-icon">🚪</span>
+        <div class="menu-item-text">
+          <div class="menu-item-title danger-text">Log Out</div>
+          <div class="menu-item-sub">End current login session</div>
+        </div>
+      </button>
+    </div>
+  </div>
 
   <!-- Floating Particles Script -->
   <script>

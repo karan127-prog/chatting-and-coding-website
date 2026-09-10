@@ -7,20 +7,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Global Theme Customizer
   const themeSelect = document.getElementById('global-theme-select');
-  const savedTheme = localStorage.getItem('pulsechat_theme') || 'aurora';
-  document.body.setAttribute('data-theme', savedTheme);
-  if (themeSelect) {
-    themeSelect.value = savedTheme;
-    themeSelect.addEventListener('change', (e) => {
-      document.body.setAttribute('data-theme', e.target.value);
-      localStorage.setItem('pulsechat_theme', e.target.value);
+  const lobbyThemeToggle = document.getElementById('lobby-theme-toggle');
+  const chatThemeToggle = document.getElementById('chat-theme-toggle');
+  let currentTheme = localStorage.getItem('pulsechat_theme') || 'aurora';
+
+  const applyTheme = (theme) => {
+    currentTheme = theme;
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('pulsechat_theme', theme);
+    if (themeSelect) themeSelect.value = theme;
+    const isLight = theme === 'light';
+    if (lobbyThemeToggle) lobbyThemeToggle.innerHTML = isLight ? '🌙 Dark Theme' : '☀️ Light Theme';
+    if (chatThemeToggle) chatThemeToggle.innerHTML = isLight ? '🌙 Dark' : '☀️ Light';
+
+    // Sync active theme chip in profile menu
+    document.querySelectorAll('.profile-theme-chip').forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.themeId === theme);
     });
+  };
+
+  applyTheme(currentTheme);
+
+  if (themeSelect) {
+    themeSelect.addEventListener('change', (e) => applyTheme(e.target.value));
   }
+  const toggleThemeMode = () => {
+    const nextTheme = currentTheme === 'light' ? 'aurora' : 'light';
+    applyTheme(nextTheme);
+  };
+  if (lobbyThemeToggle) lobbyThemeToggle.addEventListener('click', toggleThemeMode);
+  if (chatThemeToggle) chatThemeToggle.addEventListener('click', toggleThemeMode);
 
   // State
   let currentUser = {
     username: '',
     token: '',
+    isAdmin: false,
     avatar: ['🦊','🐼','🦁','🐸','🐵','🦄','🐰','🐶'][Math.floor(Math.random()*8)],
     status: 'online',
     customStatus: 'Coding live'
@@ -39,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = JSON.parse(storedUser);
       currentUser.username = data.username;
       currentUser.token = data.token;
+      currentUser.isAdmin = !!data.isAdmin || (data.username && (data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin'));
       authView.style.display = 'none';
       socket.emit('register_user', currentUser);
       socket._registered = true;
@@ -56,6 +79,13 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       if(userContainer) userContainer.style.display = 'none';
       if(guestContainer) guestContainer.style.display = 'flex';
+    }
+
+    // Admin Dashboard Option: ONLY shown to main admin
+    const adminBtn = document.getElementById('menu-btn-admin-shortcut');
+    if (adminBtn) {
+      const isMainAdmin = !!currentUser.isAdmin || (currentUser.username && (currentUser.username.toLowerCase() === 'karan singh' || currentUser.username.toLowerCase() === 'admin'));
+      adminBtn.style.display = isMainAdmin ? 'flex' : 'none';
     }
   };
 
@@ -92,7 +122,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       currentUser.username = data.username;
       currentUser.token = data.token;
-      localStorage.setItem('pulsechat_user', JSON.stringify({ username: data.username, token: data.token }));
+      currentUser.isAdmin = !!data.isAdmin || data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin';
+      localStorage.setItem('pulsechat_user', JSON.stringify({
+        username: data.username,
+        token: data.token,
+        isAdmin: currentUser.isAdmin
+      }));
       
       authError.style.display = 'none';
       authView.style.display = 'none';
@@ -200,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Sound
   const playSoundEffect = (type='message') => {
+    if (localStorage.getItem('pulsechat_sound') === 'false') return;
     try {
       const ctx=new(window.AudioContext||window.webkitAudioContext)(),osc=ctx.createOscillator(),gain=ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
@@ -210,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // View management
   const showLobbyView = () => {
-    elLobbyView.style.display = 'flex';
+    elLobbyView.style.display = 'block';
     if (elSidebar)    elSidebar.style.display    = 'none';
     if (elMainView)   elMainView.style.display   = 'none';
     if (elStudioView) elStudioView.style.display = 'none';
@@ -231,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnModeChat?.classList.remove('active'); 
       btnModeWhiteboard?.classList.remove('active'); 
       btnModeCode?.classList.add('active');
+      codeStudio?.refreshEditor();
     } else if(mode === 'whiteboard') {
       if(elMainView) elMainView.style.display = 'none';
       if(elStudioView) elStudioView.style.display = 'none';
@@ -256,18 +293,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.btn-go-home').forEach(btn => btn.addEventListener('click', ()=>showLobbyView()));
 
   // Tabs for lobby filtering
-  document.getElementById('tab-my-envs')?.addEventListener('click', (e) => {
-    activeLobbyTab = 'my-envs';
-    e.target.classList.add('active');
-    document.getElementById('tab-public-hubs')?.classList.remove('active');
+  let activeLobbyTab = 'public-hubs';
+
+  const setLobbyTab = (tab) => {
+    activeLobbyTab = tab;
+    document.getElementById('tab-public-hubs')?.classList.toggle('active', tab === 'public-hubs');
+    document.getElementById('tab-my-envs')?.classList.toggle('active', tab === 'my-envs');
     fetchAndRenderLobbyRooms();
-  });
-  document.getElementById('tab-public-hubs')?.addEventListener('click', (e) => {
-    activeLobbyTab = 'public-hubs';
-    e.target.classList.add('active');
-    document.getElementById('tab-my-envs')?.classList.remove('active');
-    fetchAndRenderLobbyRooms();
-  });
+  };
+
+  document.getElementById('tab-my-envs')?.addEventListener('click', () => setLobbyTab('my-envs'));
+  document.getElementById('tab-public-hubs')?.addEventListener('click', () => setLobbyTab('public-hubs'));
 
   // Fetch & Render Lobby Rooms
   const fetchAndRenderLobbyRooms = async () => {
@@ -275,32 +311,46 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!grid) return;
 
     try { 
-      const res=await fetch('/api/rooms'); 
-      const d=await res.json(); 
-      activeRoomsList=d.rooms||activeRoomsList; 
+      const res = await fetch('/api/rooms'); 
+      const d = await res.json(); 
+      activeRoomsList = d.rooms || activeRoomsList; 
     } catch(e) {}
 
-    const q = (document.getElementById('lobby-room-search')?.value||'').toLowerCase().trim();
+    const q = (document.getElementById('lobby-room-search')?.value || '').toLowerCase().trim();
+    const activePill = document.querySelector('.filter-pills .pill.active');
+    const pillFilter = activePill ? (activePill.getAttribute('data-filter') || 'all') : 'all';
+
     let filtered = activeRoomsList.filter(r => {
-      const n=(r.name||'').toLowerCase(), desc=(r.description||'').toLowerCase();
-      const t=(Array.isArray(r.tags)?r.tags.join(' '):r.tags||'').toLowerCase();
-      const m=!q||n.includes(q)||desc.includes(q)||t.includes(q);
-      if(!m) return false;
+      const n = (r.name || '').toLowerCase(), desc = (r.description || '').toLowerCase();
+      const t = (Array.isArray(r.tags) ? r.tags.join(' ') : r.tags || '').toLowerCase();
+      const m = !q || n.includes(q) || desc.includes(q) || t.includes(q);
+      if (!m) return false;
+
+      if (pillFilter !== 'all') {
+        if (pillFilter === 'protected') {
+          if (!r.hasPassword) return false;
+        } else {
+          const lang = (r.language || '').toLowerCase();
+          if (!lang.includes(pillFilter) && !t.includes(pillFilter)) return false;
+        }
+      }
       return true;
     });
 
     if (activeLobbyTab === 'my-envs') {
       filtered = filtered.filter(r => r.host_username === currentUser.username || r.hostUsername === currentUser.username);
-    } else {
-      filtered = filtered.filter(r => r.host_username !== currentUser.username && r.hostUsername !== currentUser.username);
     }
 
-    const lbl=document.getElementById('lobby-room-count-label'); if(lbl) lbl.innerText=filtered.length+' room'+(filtered.length!==1?'s':'')+' available';
-    const stat=document.getElementById('stat-active-rooms'); if(stat) stat.innerText=activeRoomsList.length;
+    const lbl = document.getElementById('lobby-room-count-label');
+    if (lbl) lbl.innerText = filtered.length + ' room' + (filtered.length !== 1 ? 's' : '') + ' available';
 
     grid.innerHTML = '';
     if (!filtered.length) {
-      grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-muted);"><div style="font-size:3rem;margin-bottom:16px;">🏚️</div><div style="font-size:1rem;font-weight:600;margin-bottom:8px;">No rooms yet</div><div>Create the first one!</div></div>';
+      if (activeLobbyTab === 'my-envs') {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:50px 20px;color:var(--text-muted);"><div style="font-size:3rem;margin-bottom:14px;">🛠️</div><div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);margin-bottom:8px;">No custom environments yet</div><div style="margin-bottom:18px;">Rooms you create will appear here. Start your own room now!</div><button class="btn-lobby-action primary" style="margin:0 auto;display:inline-flex;" onclick="document.getElementById(\'lobby-btn-create-room\')?.click()">➕ Create New Room</button></div>';
+      } else {
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:50px 20px;color:var(--text-muted);"><div style="font-size:3rem;margin-bottom:14px;">🏚️</div><div style="font-size:1.05rem;font-weight:600;margin-bottom:8px;color:var(--text-primary);">No rooms found</div><div>Try adjusting your search or create a new room!</div></div>';
+      }
       return;
     }
 
@@ -332,7 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
           '</div>'+
           '<div style="display:flex; gap:6px;">'+
             ((room.host_username === currentUser.username || room.hostUsername === currentUser.username) ? '<button class="btn-delete-room-card" style="background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); color:#ef4444; border-radius:6px; padding:8px 12px; font-weight:600; cursor:pointer;" data-id="'+room.id+'" title="Delete Room">🗑️</button>' : '') +
-            '<button class="btn-join-room-card">'+(prot?'🔒 Enter Password':'→ Join Room')+'</button>'+
+            '<button class="btn-join-room-card">'+(prot?'🔒 Enter Password':'Join Room →')+'</button>'+
           '</div>'+
         '</div>';
       card.querySelector('.btn-join-room-card').addEventListener('click', ()=>handleJoinRoomClick(room));
@@ -378,7 +428,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.filter-pills .pill').forEach(pill => {
     pill.addEventListener('click', ()=>{ document.querySelectorAll('.filter-pills .pill').forEach(p=>p.classList.remove('active')); pill.classList.add('active'); fetchAndRenderLobbyRooms(); });
   });
-  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ if (!requireAuth()) return; socket.emit('request_join_room',{roomId:'general',password:''}); setTimeout(()=>switchViewMode('code'),400); });
+  document.getElementById('lobby-btn-scratchpad')?.addEventListener('click', ()=>{ 
+    if (!requireAuth()) return; 
+    socket.emit('request_join_room',{roomId:'general',password:''}); 
+    setTimeout(() => {
+      switchViewMode('code');
+      codeStudio?.refreshEditor();
+    }, 350); 
+  });
   document.getElementById('lobby-btn-create-room')?.addEventListener('click', ()=>{ if (!requireAuth(true)) return; openModal(modalCreateRoom); });
 
   // Quick Join
@@ -498,15 +555,74 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   socket.on('message_received', msg=>{ if(currentRoom&&msg.roomId===currentRoom.id){ appendSingleMessage(msg); scrollToBottom(); if(!msg.isSystem&&msg.user&&msg.user.id!==socket.id) playSoundEffect('message'); } });
+  socket.on('message_edited', ({ messageId, roomId, text, isEdited }) => {
+    if (currentRoom && roomId === currentRoom.id) {
+      const card = document.querySelector('[data-message-id="' + messageId + '"]');
+      if (card) {
+        card.setAttribute('data-raw-text', text);
+        const textSpan = card.querySelector('.message-text-content');
+        if (textSpan) {
+          textSpan.innerHTML = fmt(text);
+        } else {
+          const bubble = card.querySelector('.message-bubble');
+          if (bubble) bubble.innerHTML = '<span class="message-text-content">' + fmt(text) + '</span>';
+        }
+        const editBox = card.querySelector('.message-edit-container');
+        if (editBox) editBox.remove();
+        const bubble = card.querySelector('.message-bubble');
+        if (bubble) bubble.style.display = 'block';
+
+        const meta = card.querySelector('.message-meta');
+        if (meta && !meta.querySelector('.message-edited-tag')) {
+          const tag = document.createElement('span');
+          tag.className = 'message-edited-tag';
+          tag.innerText = '(edited)';
+          const ts = meta.querySelector('.message-timestamp');
+          if (ts) ts.insertAdjacentElement('afterend', tag);
+          else meta.appendChild(tag);
+        }
+      }
+    }
+  });
+  socket.on('message_deleted', ({ messageId, roomId }) => {
+    if (currentRoom && roomId === currentRoom.id) {
+      const card = document.querySelector('[data-message-id="' + messageId + '"]');
+      if (card) {
+        card.classList.add('deleting');
+        setTimeout(() => card.remove(), 260);
+      }
+    }
+  });
   socket.on('reaction_updated', ({messageId,roomId,reactions})=>{ if(currentRoom&&roomId===currentRoom.id){const c=document.querySelector('[data-message-id="'+messageId+'"]');if(c){const r=c.querySelector('.reactions-row');if(r) r.innerHTML=renderReactionsHTML(messageId,roomId,reactions);}} });
   socket.on('user_typing', ({roomId,username,isTyping})=>{ if(currentRoom&&roomId===currentRoom.id){if(elTypingBar) elTypingBar.style.visibility=isTyping?'visible':'hidden';if(isTyping&&elTypingText) elTypingText.innerText=username+' is typing…';} });
   socket.on('user_status_change', ({activeUsers})=>{ renderActiveUsersList(activeUsers); const s=document.getElementById('stat-active-users');if(s) s.innerText=activeUsers.length; });
 
   // Renderers
   const updateUserProfileUI = () => {
-    if(elCurrentAvatar)     elCurrentAvatar.innerText    =currentUser.avatar||'⚡';
-    if(elCurrentUsername)   elCurrentUsername.innerText  =currentUser.username||'User';
-    if(elCurrentStatusText) elCurrentStatusText.innerText=currentUser.customStatus||'Online';
+    const avatar = currentUser.avatar || '⚡';
+    const username = currentUser.username || 'Developer';
+    const statusText = currentUser.customStatus || 'Online';
+
+    if(elCurrentAvatar)     elCurrentAvatar.innerText    = avatar;
+    if(elCurrentUsername)   elCurrentUsername.innerText  = username;
+    if(elCurrentStatusText) elCurrentStatusText.innerText= statusText;
+
+    const lobbyAvatar = document.getElementById('lobby-user-avatar');
+    const lobbyName = document.getElementById('lobby-username');
+    if (lobbyAvatar) lobbyAvatar.innerText = avatar;
+    if (lobbyName) lobbyName.innerText = username;
+
+    const chatAvatar = document.getElementById('chat-user-avatar');
+    const chatName = document.getElementById('chat-username');
+    if (chatAvatar) chatAvatar.innerText = avatar;
+    if (chatName) chatName.innerText = username;
+
+    const menuAvatar = document.getElementById('menu-user-avatar');
+    const menuName = document.getElementById('menu-username');
+    const menuStatus = document.getElementById('menu-user-status');
+    if (menuAvatar) menuAvatar.innerText = avatar;
+    if (menuName) menuName.innerText = username;
+    if (menuStatus) menuStatus.innerText = '🟢 ' + statusText;
   };
 
   const renderChannelsList = rooms => {
@@ -533,15 +649,112 @@ document.addEventListener('DOMContentLoaded', () => {
   const appendSingleMessage = msg => {
     if(!elTimeline) return;
     if(msg.isSystem){const d=document.createElement('div');d.className='system-event-pill';d.innerHTML=fmt(msg.text||'');elTimeline.appendChild(d);return;}
-    const isSelf=msg.user&&msg.user.id===socket.id;
-    const card=document.createElement('div'); card.className='message-card'+(isSelf?' self':''); card.setAttribute('data-message-id',msg.id);
+    const isSelf = msg.user && (msg.user.id === socket.id || msg.user.username === currentUser.username);
+    const canEdit = isSelf && !msg.isSystem && !!msg.text;
+    const canDelete = isSelf || isHostOfRoom;
+
+    const card=document.createElement('div'); card.className='message-card'+(isSelf?' self':''); 
+    card.setAttribute('data-message-id',msg.id);
+    card.setAttribute('data-raw-text', msg.text || '');
+
     const time=new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     let media='';
     if(msg.attachment){ if(msg.attachment.mimetype?.startsWith('image/')) media+='<img src="'+msg.attachment.url+'" class="message-image-embed" alt="img">'; else media+='<div style="margin-top:8px;"><a href="'+msg.attachment.url+'" target="_blank" style="color:var(--accent-cyan);text-decoration:underline;">📎 '+msg.attachment.filename+'</a></div>'; }
     if(msg.voiceNote) media+='<div class="voice-note-player"><button class="btn-play-voice" onclick="new Audio(\''+msg.voiceNote.url+'\').play()">▶</button><span style="font-size:0.8rem;color:var(--text-muted);">Voice ('+msg.voiceNote.duration+'s)</span></div>';
     if(msg.codeSnippet) media+='<div class="code-snippet-box"><div class="code-header"><span>'+(msg.codeSnippet.language||'code')+'</span><button style="background:transparent;border:none;color:var(--accent-cyan);cursor:pointer;" onclick="navigator.clipboard.writeText(this.closest(\'.code-snippet-box\').querySelector(\'.code-content\').innerText)">Copy</button></div><div class="code-content">'+escapeHTML(msg.codeSnippet.code)+'</div></div>';
-    card.innerHTML='<div class="message-avatar">'+(msg.user?msg.user.avatar:'⚡')+'</div><div class="message-content-wrapper"><div class="message-meta"><span class="message-author">'+(msg.user?msg.user.username:'User')+'</span>'+(msg.user?.isBot?'<span class="bot-tag">BOT</span>':'')+'<span class="message-timestamp">'+time+'</span><button class="btn-add-reaction" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\')">➕</button></div><div class="message-bubble">'+(msg.text?fmt(msg.text):'')+media+'</div><div class="reactions-row">'+renderReactionsHTML(msg.id,msg.roomId,msg.reactions)+'</div></div>';
+
+    const editedTag = msg.isEdited ? '<span class="message-edited-tag">(edited)</span>' : '';
+    const actionsBar = '<div class="message-actions-bar">' +
+      '<button class="message-action-btn react" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\')" title="React">➕</button>' +
+      (canEdit ? '<button class="message-action-btn edit" onclick="window.startEditMessage(\''+msg.id+'\')" title="Edit message">✏️</button>' : '') +
+      (canDelete ? '<button class="message-action-btn delete" onclick="window.deleteMessage(\''+msg.id+'\')" title="Delete message">🗑️</button>' : '') +
+      '</div>';
+
+    card.innerHTML=
+      '<div class="message-avatar">'+(msg.user?msg.user.avatar:'⚡')+'</div>' +
+      '<div class="message-content-wrapper">' +
+        '<div class="message-meta">' +
+          '<span class="message-author">'+(msg.user?msg.user.username:'User')+'</span>' +
+          (msg.user?.isBot?'<span class="bot-tag">BOT</span>':'') +
+          '<span class="message-timestamp">'+time+'</span>' +
+          editedTag +
+          actionsBar +
+        '</div>' +
+        '<div class="message-bubble">' +
+          (msg.text ? '<span class="message-text-content">'+fmt(msg.text)+'</span>' : '') +
+          media +
+        '</div>' +
+        '<div class="reactions-row">'+renderReactionsHTML(msg.id,msg.roomId,msg.reactions)+'</div>' +
+      '</div>';
+
     elTimeline.appendChild(card);
+  };
+
+  window.startEditMessage = (mid) => {
+    const card = document.querySelector('[data-message-id="' + mid + '"]');
+    if (!card) return;
+    if (card.querySelector('.message-edit-container')) return;
+
+    const bubble = card.querySelector('.message-bubble');
+    const rawText = card.getAttribute('data-raw-text') || '';
+    bubble.style.display = 'none';
+
+    const editContainer = document.createElement('div');
+    editContainer.className = 'message-edit-container';
+    editContainer.innerHTML = 
+      '<textarea class="message-edit-input">' + escapeHTML(rawText) + '</textarea>' +
+      '<div class="message-edit-actions">' +
+        '<button class="btn-edit-action primary" onclick="window.saveEditMessage(\'' + mid + '\')">Save</button>' +
+        '<button class="btn-edit-action" onclick="window.cancelEditMessage(\'' + mid + '\')">Cancel</button>' +
+        '<span style="font-size:0.7rem;color:var(--text-dim);margin-left:auto;">Enter to save • Esc to cancel</span>' +
+      '</div>';
+
+    const wrapper = card.querySelector('.message-content-wrapper');
+    const reactions = card.querySelector('.reactions-row');
+    wrapper.insertBefore(editContainer, reactions);
+
+    const textarea = editContainer.querySelector('textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        window.saveEditMessage(mid);
+      } else if (e.key === 'Escape') {
+        window.cancelEditMessage(mid);
+      }
+    });
+  };
+
+  window.saveEditMessage = (mid) => {
+    const card = document.querySelector('[data-message-id="' + mid + '"]');
+    if (!card || !currentRoom) return;
+    const textarea = card.querySelector('.message-edit-input');
+    if (!textarea) return;
+    const newText = textarea.value.trim();
+    if (!newText) {
+      showToast('Message cannot be empty', 'error');
+      return;
+    }
+    socket.emit('edit_message', { roomId: currentRoom.id, messageId: mid, newText });
+    window.cancelEditMessage(mid);
+  };
+
+  window.cancelEditMessage = (mid) => {
+    const card = document.querySelector('[data-message-id="' + mid + '"]');
+    if (!card) return;
+    const editContainer = card.querySelector('.message-edit-container');
+    if (editContainer) editContainer.remove();
+    const bubble = card.querySelector('.message-bubble');
+    if (bubble) bubble.style.display = 'block';
+  };
+
+  window.deleteMessage = (mid) => {
+    if (!currentRoom) return;
+    if (confirm('Are you sure you want to delete this message?')) {
+      socket.emit('delete_message', { roomId: currentRoom.id, messageId: mid });
+    }
   };
 
   window.toggleReaction=(mid,rid,emoji)=>socket.emit('toggle_reaction',{messageId:mid,roomId:rid,emoji});
@@ -599,10 +812,165 @@ document.addEventListener('DOMContentLoaded', () => {
   // Logout / Switch Account
   const handleLogout = () => {
     localStorage.removeItem('pulsechat_user');
+    currentUser.username = '';
+    currentUser.token = '';
+    currentUser.isAdmin = false;
     window.location.reload();
   };
   document.getElementById('lobby-btn-logout')?.addEventListener('click', handleLogout);
   document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+
+  // --- Profile Dropdown Menu Logic ---
+  const profileMenu = document.getElementById('profile-dropdown-menu');
+  let activeProfileTrigger = null;
+
+  const openProfileMenu = (triggerEl) => {
+    if (!profileMenu) return;
+    activeProfileTrigger = triggerEl;
+    triggerEl.classList.add('active');
+
+    // Admin Dashboard Shortcut: ONLY shown to main admin
+    const adminBtn = document.getElementById('menu-btn-admin-shortcut');
+    if (adminBtn) {
+      const isMainAdmin = !!currentUser.isAdmin || (currentUser.username && (currentUser.username.toLowerCase() === 'karan singh' || currentUser.username.toLowerCase() === 'admin'));
+      adminBtn.style.display = isMainAdmin ? 'flex' : 'none';
+    }
+
+    // Sync theme chip states
+    document.querySelectorAll('.profile-theme-chip').forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.themeId === currentTheme);
+    });
+
+    // Position menu below trigger
+    const rect = triggerEl.getBoundingClientRect();
+    profileMenu.style.display = 'flex';
+    profileMenu.style.top = (rect.bottom + 8) + 'px';
+
+    if (rect.right > window.innerWidth - 300) {
+      profileMenu.style.right = Math.max(12, window.innerWidth - rect.right) + 'px';
+      profileMenu.style.left = 'auto';
+    } else {
+      profileMenu.style.left = Math.max(12, rect.left) + 'px';
+      profileMenu.style.right = 'auto';
+    }
+  };
+
+  const closeProfileMenu = () => {
+    if (!profileMenu) return;
+    profileMenu.style.display = 'none';
+    if (activeProfileTrigger) {
+      activeProfileTrigger.classList.remove('active');
+      activeProfileTrigger = null;
+    }
+  };
+
+  const toggleProfileMenu = (triggerEl, e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (profileMenu && profileMenu.style.display === 'flex' && activeProfileTrigger === triggerEl) {
+      closeProfileMenu();
+    } else {
+      openProfileMenu(triggerEl);
+    }
+  };
+
+  document.getElementById('lobby-btn-profile')?.addEventListener('click', (e) => toggleProfileMenu(e.currentTarget, e));
+  document.getElementById('chat-btn-profile')?.addEventListener('click', (e) => toggleProfileMenu(e.currentTarget, e));
+  document.getElementById('profile-badge')?.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-edit-profile') || e.target.closest('#btn-logout')) return;
+    toggleProfileMenu(e.currentTarget, e);
+  });
+
+  // Close when clicking outside or pressing Escape
+  document.addEventListener('click', (e) => {
+    if (profileMenu && profileMenu.style.display === 'flex') {
+      if (!profileMenu.contains(e.target) && !e.target.closest('.btn-profile-trigger') && !e.target.closest('#profile-badge')) {
+        closeProfileMenu();
+      }
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && profileMenu && profileMenu.style.display === 'flex') {
+      closeProfileMenu();
+    }
+  });
+
+  // Profile Menu: Account Button
+  document.getElementById('menu-btn-account')?.addEventListener('click', () => {
+    closeProfileMenu();
+    document.getElementById('btn-edit-profile')?.click();
+  });
+
+  // Profile Menu: Theme Chips
+  document.querySelectorAll('.profile-theme-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const tid = e.currentTarget.dataset.themeId;
+      if (tid) applyTheme(tid);
+    });
+  });
+
+  // Profile Menu: Sound Effects Toggle
+  let isSoundEnabled = localStorage.getItem('pulsechat_sound') !== 'false';
+  const updateSoundUI = () => {
+    const pill = document.getElementById('menu-sound-pill');
+    const sub = document.getElementById('menu-sound-sub');
+    const icon = document.getElementById('menu-sound-icon');
+    if (pill) {
+      pill.className = 'menu-toggle-pill ' + (isSoundEnabled ? 'on' : 'off');
+      pill.innerText = isSoundEnabled ? 'ON' : 'OFF';
+    }
+    if (sub) sub.innerText = isSoundEnabled ? 'Message chimes enabled' : 'Muted';
+    if (icon) icon.innerText = isSoundEnabled ? '🔔' : '🔕';
+  };
+  updateSoundUI();
+
+  document.getElementById('menu-btn-sound')?.addEventListener('click', () => {
+    isSoundEnabled = !isSoundEnabled;
+    localStorage.setItem('pulsechat_sound', isSoundEnabled ? 'true' : 'false');
+    updateSoundUI();
+    showToast(isSoundEnabled ? 'Sound effects enabled' : 'Sound effects muted', 'info');
+  });
+
+  // Admin Dashboard Logic - strictly restricted to Main Admin
+  const modalAdminDashboard = document.getElementById('modal-admin-dashboard');
+  const openAdminPanel = () => {
+    const isMainAdmin = !!currentUser.isAdmin || (currentUser.username && (currentUser.username.toLowerCase() === 'karan singh' || currentUser.username.toLowerCase() === 'admin'));
+    if (!isMainAdmin) {
+      showToast("Access denied: Main admin privileges required.", "error");
+      return;
+    }
+    openModal(modalAdminDashboard);
+    fetchAndRenderAdminUsers();
+  };
+
+  // Profile Menu: Admin Shortcut
+  document.getElementById('menu-btn-admin-shortcut')?.addEventListener('click', () => {
+    closeProfileMenu();
+    openAdminPanel();
+  });
+
+  // Profile Menu: Switch Account
+  const handleSwitchAccount = () => {
+    closeProfileMenu();
+    localStorage.removeItem('pulsechat_user');
+    currentUser.username = '';
+    currentUser.token = '';
+    currentUser.isAdmin = false;
+    updateAuthUI();
+    const authView = document.getElementById('auth-view');
+    if (authView) authView.style.display = 'flex';
+    showToast('Switched account mode. Please log in or sign up.', 'info');
+  };
+  document.getElementById('menu-btn-switch-account')?.addEventListener('click', handleSwitchAccount);
+
+  // Profile Menu: Logout
+  document.getElementById('menu-btn-logout')?.addEventListener('click', () => {
+    closeProfileMenu();
+    handleLogout();
+  });
 
   // Copy Room ID
   document.getElementById('btn-copy-room-id')?.addEventListener('click', () => {
@@ -616,43 +984,40 @@ document.addEventListener('DOMContentLoaded', () => {
   updateAuthUI();
   showLobbyView();
 
-  // Admin Dashboard Logic
-  const modalAdminDashboard = document.getElementById('modal-admin-dashboard');
-  document.getElementById('lobby-btn-admin-panel')?.addEventListener('click', () => {
-    if (!requireAuth()) return;
-    const pwd = prompt("Enter Admin Password to continue:");
-    if (pwd !== "admin123") {
-      showToast("Incorrect password!", "error");
-      return;
-    }
-    openModal(modalAdminDashboard);
-    fetchAndRenderAdminUsers();
-  });
-
   document.getElementById('btn-close-admin-modal')?.addEventListener('click', () => {
     closeModal(modalAdminDashboard);
   });
 
   const fetchAndRenderAdminUsers = async () => {
     try {
-      const res = await fetch('/api/admin/users');
+      const res = await fetch('/api/admin/users', {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-token': currentUser.token || '',
+          'x-admin-key': 'Rajput2007'
+        }
+      });
+      if (!res.ok) {
+        throw new Error("Admin privileges required");
+      }
       const data = await res.json();
       const list = document.getElementById('admin-user-list');
       if (list) {
         list.innerHTML = '';
-        if (data.users.length === 0) {
+        if (!data.users || data.users.length === 0) {
           list.innerHTML = '<div style="color:var(--text-muted);">No users found.</div>';
           return;
         }
         data.users.forEach(u => {
           const div = document.createElement('div');
           div.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:6px;';
+          const isMain = !!u.is_admin || (u.username && (u.username.toLowerCase() === 'karan singh' || u.username.toLowerCase() === 'admin'));
           div.innerHTML = `
             <div>
-              <div style="font-weight:600;">${u.username}</div>
+              <div style="font-weight:600;">${u.username} ${isMain ? '<span style="font-size:0.65rem; background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.3); padding:1px 6px; border-radius:4px; margin-left:6px;">MAIN ADMIN</span>' : ''}</div>
               <div style="font-size:0.7rem; color:var(--text-muted);">ID: ${u.id} | Created: ${new Date(u.created_at).toLocaleString()}</div>
             </div>
-            <button class="btn-delete-user" data-id="${u.id}" style="background:rgba(239,68,68,0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Delete</button>
+            ${!isMain ? `<button class="btn-delete-user" data-id="${u.id}" style="background:rgba(239,68,68,0.2); color:#ef4444; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Delete</button>` : ''}
           `;
           list.appendChild(div);
         });
@@ -661,9 +1026,20 @@ document.addEventListener('DOMContentLoaded', () => {
           btn.addEventListener('click', async (e) => {
             if (confirm("Are you sure you want to delete this user?")) {
               const id = e.target.getAttribute('data-id');
-              await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
-              showToast("User deleted.", "success");
-              fetchAndRenderAdminUsers();
+              const delRes = await fetch(`/api/admin/users/${id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-token': currentUser.token || '',
+                  'x-admin-key': 'Rajput2007'
+                }
+              });
+              if (delRes.ok) {
+                showToast("User deleted.", "success");
+                fetchAndRenderAdminUsers();
+              } else {
+                showToast("Failed to delete user.", "error");
+              }
             }
           });
         });

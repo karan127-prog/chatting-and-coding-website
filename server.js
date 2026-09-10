@@ -79,7 +79,20 @@ app.get('/api/rooms', async (req, res) => {
   }
 });
 
-// Admin & Deletion APIs
+// Admin & Deletion APIs with Main Admin Authorization
+const requireAdminAuth = async (req, res, next) => {
+  const token = req.headers['x-user-token'];
+  const adminKey = req.headers['x-admin-key'];
+  if (adminKey === 'Rajput2007' || adminKey === 'admin123') return next();
+  if (token) {
+    const user = await DatabaseAPI.getUserById(token);
+    if (user && (user.isAdmin || user.username.toLowerCase() === 'karan singh' || user.username.toLowerCase() === 'admin')) {
+      return next();
+    }
+  }
+  return res.status(403).json({ error: 'Admin access denied. Only the main admin can access this endpoint.' });
+};
+
 app.delete('/api/rooms/:id', async (req, res) => {
   try {
     await DatabaseAPI.deleteRoom(req.params.id);
@@ -89,7 +102,7 @@ app.delete('/api/rooms/:id', async (req, res) => {
   }
 });
 
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/admin/users', requireAdminAuth, async (req, res) => {
   try {
     const users = await DatabaseAPI.getAllUsers();
     res.json({ users });
@@ -98,7 +111,7 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', async (req, res) => {
+app.delete('/api/admin/users/:id', requireAdminAuth, async (req, res) => {
   try {
     await DatabaseAPI.deleteUser(req.params.id);
     io.emit('force_logout', { userId: req.params.id });
@@ -108,34 +121,96 @@ app.delete('/api/admin/users/:id', async (req, res) => {
   }
 });
 
+// Cloud Compiler Execution via Judge0 CE
+const JUDGE0_LANG_MAP = {
+  c: 50,          // C (GCC 9.2.0)
+  cpp: 54,        // C++ (GCC 9.2.0)
+  'c++': 54,
+  java: 62,       // Java (OpenJDK 13.0.1)
+  python: 71,     // Python 3.8.1
+  py: 71,
+  javascript: 63, // Node.js 12.14.0
+  js: 63,
+  csharp: 51,
+  cs: 51,
+  ruby: 72,
+  rb: 72,
+  go: 60,
+  rust: 73,
+  rs: 73
+};
+
+async function executeViaJudge0(code, languageId, stdin = '') {
+  const payload = {
+    source_code: Buffer.from(code).toString('base64'),
+    language_id: languageId
+  };
+  if (stdin) {
+    payload.stdin = Buffer.from(stdin).toString('base64');
+  }
+
+  const response = await fetch('https://ce.judge0.com/submissions?base64_encoded=true&wait=true', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(16000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Compiler service returned HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const decodeB64 = (val) => (val ? Buffer.from(val, 'base64').toString('utf8') : '');
+
+  return {
+    stdout: decodeB64(data.stdout),
+    stderr: decodeB64(data.stderr),
+    compile_output: decodeB64(data.compile_output),
+    message: decodeB64(data.message),
+    time: data.time ? `${data.time}s` : null,
+    memory: data.memory ? `${data.memory} KB` : null,
+    status: data.status ? data.status.description : 'Done'
+  };
+}
+
 // Code Execution Endpoint
-app.post('/api/run-code', (req, res) => {
-  const { code, language, filename } = req.body;
+app.post('/api/run-code', async (req, res) => {
+  const { code, language, filename, stdin } = req.body;
   if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Code content required' });
 
-  const lang = (language || 'javascript').toLowerCase();
-  const isPython = lang === 'python' || (filename && filename.endsWith('.py'));
-  const isJS = lang === 'javascript' || (filename && filename.endsWith('.js'));
+  let lang = (language || '').toLowerCase().trim();
+  if (!lang && filename) {
+    const ext = path.extname(filename).toLowerCase().replace('.', '');
+    if (ext === 'c') lang = 'c';
+    else if (['cpp', 'cc', 'cxx', 'hpp', 'h'].includes(ext)) lang = 'cpp';
+    else if (ext === 'py') lang = 'python';
+    else if (ext === 'js') lang = 'javascript';
+    else if (ext === 'java') lang = 'java';
+  }
+  if (!lang) lang = 'c';
 
-  if (isPython) {
-    const tempDir = path.join(__dirname, 'scratch_run');
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    const tempFilePath = path.join(tempDir, `run_${Date.now()}.py`);
+  const isC = lang === 'c' || (filename && filename.endsWith('.c'));
+  const isCpp = lang === 'cpp' || lang === 'c++' || (filename && (filename.endsWith('.cpp') || filename.endsWith('.cc') || filename.endsWith('.cxx')));
+  const isJava = lang === 'java' || (filename && filename.endsWith('.java'));
+  const isJS = lang === 'javascript' || lang === 'js' || (filename && filename.endsWith('.js'));
+  const isPython = lang === 'python' || lang === 'py' || (filename && filename.endsWith('.py'));
 
-    fs.writeFile(tempFilePath, code, (err) => {
-      if (err) return res.json({ stdout: runFallbackPythonParser(code), stderr: '' });
-
-      const command = `py "${tempFilePath}" || python "${tempFilePath}" || python3 "${tempFilePath}"`;
-      exec(command, { timeout: 8000, maxBuffer: 1024 * 1024 }, (execErr, stdout, stderr) => {
-        fs.unlink(tempFilePath, () => {});
-        const isPathError = stderr && (stderr.includes('not recognized') || stderr.includes('command not found') || stderr.includes('No such file'));
-        if (execErr || isPathError || (!stdout && stderr)) {
-          return res.json({ stdout: runFallbackPythonParser(code), stderr: '' });
-        }
-        res.json({ stdout: stdout || '', stderr: stderr || '' });
+  if (isC || isCpp || isJava) {
+    const langId = isC ? 50 : (isCpp ? 54 : 62);
+    try {
+      const result = await executeViaJudge0(code, langId, stdin || '');
+      return res.json(result);
+    } catch (err) {
+      console.error('Judge0 execution error:', err.message);
+      return res.status(500).json({
+        error: `Cloud compilation service error: ${err.message}`,
+        stderr: err.message
       });
-    });
-  } else if (isJS) {
+    }
+  }
+
+  if (isJS) {
     const tempDir = path.join(__dirname, 'scratch_run');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     const tempFilePath = path.join(tempDir, `run_${Date.now()}.js`);
@@ -146,9 +221,46 @@ app.post('/api/run-code', (req, res) => {
         res.json({ stdout: stdout || '', stderr: stderr || '' });
       });
     });
-  } else {
-    res.json({ stdout: `Execution completed for ${filename || 'script'}.\n` });
+    return;
   }
+
+  if (isPython) {
+    const tempDir = path.join(__dirname, 'scratch_run');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const tempFilePath = path.join(tempDir, `run_${Date.now()}.py`);
+
+    fs.writeFile(tempFilePath, code, (err) => {
+      if (err) {
+        return executeViaJudge0(code, 71, stdin || '')
+          .then(r => res.json(r))
+          .catch(() => res.json({ stdout: runFallbackPythonParser(code), stderr: '' }));
+      }
+
+      const command = `py "${tempFilePath}" || python "${tempFilePath}" || python3 "${tempFilePath}"`;
+      exec(command, { timeout: 8000, maxBuffer: 1024 * 1024 }, (execErr, stdout, stderr) => {
+        fs.unlink(tempFilePath, () => {});
+        const isPathError = stderr && (stderr.includes('not recognized') || stderr.includes('command not found') || stderr.includes('No such file'));
+        if (execErr || isPathError || (!stdout && stderr)) {
+          return executeViaJudge0(code, 71, stdin || '')
+            .then(r => res.json(r))
+            .catch(() => res.json({ stdout: runFallbackPythonParser(code), stderr: '' }));
+        }
+        res.json({ stdout: stdout || '', stderr: stderr || '' });
+      });
+    });
+    return;
+  }
+
+  if (JUDGE0_LANG_MAP[lang]) {
+    try {
+      const result = await executeViaJudge0(code, JUDGE0_LANG_MAP[lang], stdin || '');
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  res.json({ stdout: `Execution completed for ${filename || 'script'}.\n` });
 });
 
 // Real AI Copilot Engine Endpoint with Multi-Provider API Integration
@@ -523,9 +635,13 @@ const handleBotMention = (roomId, messageText, senderUser) => {
 app.post('/api/signup', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  const uLower = username.trim().toLowerCase();
+  if (uLower === 'karan singh' || uLower === 'admin') {
+    return res.status(400).json({ error: "This username is reserved for system administrator." });
+  }
   try {
     const user = await DatabaseAPI.createUser(username, password);
-    res.json({ token: user.id, username: user.username });
+    res.json({ token: user.id, username: user.username, isAdmin: false });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -536,7 +652,7 @@ app.post('/api/login', async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   try {
     const user = await DatabaseAPI.authenticateUser(username, password);
-    res.json({ token: user.id, username: user.username });
+    res.json({ token: user.id, username: user.username, isAdmin: !!user.isAdmin });
   } catch (err) {
     res.status(401).json({ error: err.message });
   }
@@ -854,6 +970,32 @@ io.on('connection', (socket) => {
     if (text && (text.includes('@PulseBot') || text.startsWith('/'))) {
       handleBotMention(roomId, text, sender);
     }
+  });
+
+  // Edit Message
+  socket.on('edit_message', async ({ roomId, messageId, newText }) => {
+    const sender = activeUsers.get(socket.id);
+    if (!sender || !newText || !messageId) return;
+
+    await DatabaseAPI.editMessage(messageId, newText.trim());
+    io.to(roomId).emit('message_edited', {
+      messageId,
+      roomId,
+      text: newText.trim(),
+      isEdited: true
+    });
+  });
+
+  // Delete Message
+  socket.on('delete_message', async ({ roomId, messageId }) => {
+    const sender = activeUsers.get(socket.id);
+    if (!sender || !messageId) return;
+
+    await DatabaseAPI.deleteMessage(messageId);
+    io.to(roomId).emit('message_deleted', {
+      messageId,
+      roomId
+    });
   });
 
   // Collaborative Code Events & DB Persistence

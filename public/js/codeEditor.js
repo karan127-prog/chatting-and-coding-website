@@ -36,9 +36,22 @@ class CollaborativeCodeStudio {
         matchBrackets: true,
         autoCloseBrackets: true,
         lint: true,
-        gutters: ["CodeMirror-lint-markers", "CodeMirror-linenumbers"]
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-lint-markers"]
       });
       this.editor.setSize('100%', '100%');
+
+      // Auto-refresh CodeMirror whenever the studio view becomes visible or resizes
+      if (window.ResizeObserver) {
+        this.studioResizeObserver = new ResizeObserver(() => {
+          if (this.viewStudio && (this.viewStudio.offsetWidth > 0 || this.viewStudio.offsetParent !== null)) {
+            this.refreshEditor();
+          }
+        });
+        if (this.viewStudio) this.studioResizeObserver.observe(this.viewStudio);
+        const editorMain = document.querySelector('.studio-editor-main');
+        if (editorMain) this.studioResizeObserver.observe(editorMain);
+      }
+      window.addEventListener('resize', () => this.refreshEditor());
       
       this.editor.on('change', (cm, changeObj) => {
         if (changeObj.origin !== 'setValue') {
@@ -777,9 +790,12 @@ builtins.input = custom_input
         const ext = fileName.split('.').pop().toLowerCase();
         let lang = 'javascript';
         if (ext === 'py') lang = 'python';
-        if (ext === 'html') lang = 'html';
-        if (ext === 'css') lang = 'css';
-        if (ext === 'json') lang = 'json';
+        else if (ext === 'c') lang = 'c';
+        else if (['cpp', 'cc', 'cxx', 'hpp', 'h'].includes(ext)) lang = 'cpp';
+        else if (ext === 'java') lang = 'java';
+        else if (ext === 'html') lang = 'html';
+        else if (ext === 'css') lang = 'css';
+        else if (ext === 'json') lang = 'json';
 
         this.socket.emit('code_create_file', {
           roomId: this.currentRoomId,
@@ -794,6 +810,17 @@ builtins.input = custom_input
       const activeFile = this.getActiveFile();
       if (activeFile) {
         activeFile.language = this.langSelect.value;
+        if (this.editor) {
+          let mode = 'javascript';
+          if (activeFile.language === 'python') mode = 'python';
+          else if (activeFile.language === 'c') mode = 'text/x-csrc';
+          else if (activeFile.language === 'cpp') mode = 'text/x-c++src';
+          else if (activeFile.language === 'java') mode = 'text/x-java';
+          else if (activeFile.language === 'html') mode = 'htmlmixed';
+          else if (activeFile.language === 'css') mode = 'css';
+          else if (activeFile.language === 'json') mode = 'javascript';
+          this.editor.setOption('mode', mode);
+        }
         this.updateStatusBar();
       }
     });
@@ -899,6 +926,22 @@ builtins.input = custom_input
     this.updateLineNumbers();
     this.updateHTMLPreview();
     this.updateStatusBar();
+    this.refreshEditor();
+  }
+
+  refreshEditor() {
+    if (this.editor) {
+      this.editor.refresh();
+      requestAnimationFrame(() => {
+        if (this.editor) this.editor.refresh();
+      });
+      setTimeout(() => {
+        if (this.editor) this.editor.refresh();
+      }, 50);
+      setTimeout(() => {
+        if (this.editor) this.editor.refresh();
+      }, 200);
+    }
   }
 
   renderTabsBar() {
@@ -1101,39 +1144,53 @@ builtins.input = custom_input
     }
 
     const isC = activeFile.name.endsWith('.c') || activeFile.language === 'c';
-    const isCpp = activeFile.name.endsWith('.cpp') || activeFile.language === 'cpp';
+    const isCpp = activeFile.name.endsWith('.cpp') || activeFile.name.endsWith('.cc') || activeFile.name.endsWith('.cxx') || activeFile.language === 'cpp';
     const isJava = activeFile.name.endsWith('.java') || activeFile.language === 'java';
 
     const stdinInputNode = document.getElementById('studio-stdin-input');
     const stdinVal = stdinInputNode ? stdinInputNode.value : '';
 
     if (isC || isCpp || isJava) {
-      this.appendConsoleLine(`⏳ Compiling and running via Cloud Engine...`, 'system');
+      const langLabel = isC ? 'C (GCC 9.2)' : (isCpp ? 'C++ (G++ 9.2)' : 'Java 13');
+      this.appendConsoleLine(`⏳ Compiling and executing ${activeFile.name} with ${langLabel}...`, 'system');
       try {
-        const compiler = isC ? 'gcc-head-c' : (isCpp ? 'gcc-head' : 'openjdk-jdk-22+36');
-        const res = await fetch("https://wandbox.org/api/compile.json", {
+        const langCode = isC ? 'c' : (isCpp ? 'cpp' : 'java');
+        const res = await fetch("/api/run-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            compiler: compiler,
+            language: langCode,
+            filename: activeFile.name,
             code: activeFile.content,
             stdin: stdinVal
           })
         });
         const data = await res.json();
-        if (data.compiler_error && data.compiler_error.trim()) {
-          this.appendConsoleLine(data.compiler_error, 'error');
+        
+        if (data.compile_output && data.compile_output.trim()) {
+          this.appendConsoleLine(data.compile_output.trim(), 'error');
         }
-        if (data.program_error && data.program_error.trim()) {
-          this.appendConsoleLine(data.program_error, 'error');
+        if (data.stderr && data.stderr.trim()) {
+          this.appendConsoleLine(data.stderr.trim(), 'error');
         }
-        if (data.program_output && data.program_output.trim()) {
-          this.appendConsoleLine(data.program_output, 'return');
+        if (data.stdout && data.stdout.trim()) {
+          this.appendConsoleLine(data.stdout.trim(), 'return');
         }
-        if (data.status !== "0" && !data.program_error && !data.compiler_error && !data.program_output) {
-          this.appendConsoleLine('Execution failed (Status ' + data.status + ')', 'error');
-        } else if (!data.program_output && !data.compiler_error && !data.program_error) {
-          this.appendConsoleLine('Program ran successfully (No output)', 'system');
+        if (data.message && data.message.trim()) {
+          this.appendConsoleLine(data.message.trim(), 'system');
+        }
+
+        if (data.time || data.memory) {
+          const stats = [];
+          if (data.time) stats.push(`Time: ${data.time}`);
+          if (data.memory) stats.push(`Memory: ${data.memory}`);
+          this.appendConsoleLine(`⚡ Finished (${stats.join(', ')}) [Status: ${data.status || 'Done'}]`, 'system');
+        } else if (!data.stdout && !data.compile_output && !data.stderr && !data.error) {
+          this.appendConsoleLine('Program ran successfully with no output.', 'system');
+        }
+
+        if (data.error && !data.compile_output && !data.stderr) {
+          this.appendConsoleLine(`Error: ${data.error}`, 'error');
         }
       } catch (err) {
         this.appendConsoleLine(`Execution Error: ${err.message}`, 'error');

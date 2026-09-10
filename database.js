@@ -57,6 +57,28 @@ function loadJsonFallback() {
   } else {
     saveJsonFallback();
   }
+
+  // Ensure main admin account exists (Karan Singh / Rajput2007)
+  const adminUsername = process.env.ADMIN_USERNAME || 'Karan Singh';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Rajput2007';
+  const adminHash = crypto.createHash('sha256').update(adminPassword).digest('hex');
+  if (!jsonStore.users) jsonStore.users = [];
+  const existingAdmin = jsonStore.users.find(u => u.username.toLowerCase() === adminUsername.toLowerCase() || u.username.toLowerCase() === 'admin');
+  if (!existingAdmin) {
+    jsonStore.users.push({
+      id: 'admin-karan-01',
+      username: adminUsername,
+      password_hash: adminHash,
+      is_admin: 1,
+      created_at: new Date().toISOString()
+    });
+    saveJsonFallback();
+  } else {
+    existingAdmin.username = adminUsername;
+    existingAdmin.is_admin = 1;
+    existingAdmin.password_hash = adminHash;
+    saveJsonFallback();
+  }
 }
 
 function initDB() {
@@ -88,8 +110,28 @@ function createTables() {
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,
       created_at TEXT
     )`);
+
+    // Ensure is_admin column exists in case users table was created previously
+    db.run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`, () => {});
+
+    // Ensure main admin user exists in SQLite (Karan Singh / Rajput2007)
+    const adminUsername = process.env.ADMIN_USERNAME || 'Karan Singh';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Rajput2007';
+    const adminHash = crypto.createHash('sha256').update(adminPassword).digest('hex');
+
+    db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [adminUsername], (err, row) => {
+      if (!err && !row) {
+        console.log('👑 Seeding main admin account: ' + adminUsername);
+        db.run('INSERT INTO users (id, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, 1, ?)',
+          ['admin-karan-01', adminUsername, adminHash, new Date().toISOString()]
+        );
+      } else if (!err && row) {
+        db.run('UPDATE users SET password_hash = ?, is_admin = 1 WHERE LOWER(username) = LOWER(?)', [adminHash, adminUsername]);
+      }
+    });
 
     // Rooms Table
     db.run(`CREATE TABLE IF NOT EXISTS rooms (
@@ -123,8 +165,12 @@ function createTables() {
       text TEXT,
       attachment TEXT,
       code_snippet TEXT,
-      timestamp TEXT
+      timestamp TEXT,
+      is_edited INTEGER DEFAULT 0
     )`);
+
+    // Ensure is_edited column exists in case messages table was created previously
+    db.run(`ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0`, () => {});
 
     // User Extensions Table
     db.run(`CREATE TABLE IF NOT EXISTS user_extensions (
@@ -160,24 +206,28 @@ const DatabaseAPI = {
   // Auth
   createUser: (username, password) => {
     return new Promise((resolve, reject) => {
+      const uLower = username.trim().toLowerCase();
+      if (uLower === 'karan singh' || uLower === 'admin') {
+        return reject(new Error("This username is reserved for system administrator"));
+      }
       const id = 'user-' + Date.now();
       const hash = crypto.createHash('sha256').update(password).digest('hex');
       const createdAt = new Date().toISOString();
 
       if (useJsonFallback || !db) {
-        if (jsonStore.users.find(u => u.username === username)) {
+        if (jsonStore.users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
           return reject(new Error('Username already exists'));
         }
-        jsonStore.users.push({ id, username, password_hash: hash, created_at: createdAt });
+        jsonStore.users.push({ id, username, password_hash: hash, is_admin: 0, created_at: createdAt });
         saveJsonFallback();
-        return resolve({ id, username });
+        return resolve({ id, username, isAdmin: false });
       }
 
-      db.run('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)', 
+      db.run('INSERT INTO users (id, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, 0, ?)', 
         [id, username, hash, createdAt], 
         function(err) {
           if (err) return reject(new Error('Username already exists'));
-          resolve({ id, username });
+          resolve({ id, username, isAdmin: false });
         }
       );
     });
@@ -188,14 +238,29 @@ const DatabaseAPI = {
       const hash = crypto.createHash('sha256').update(password).digest('hex');
 
       if (useJsonFallback || !db) {
-        const user = jsonStore.users.find(u => u.username === username && u.password_hash === hash);
-        if (user) return resolve({ id: user.id, username: user.username });
+        const user = jsonStore.users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password_hash === hash);
+        if (user) {
+          return resolve({ id: user.id, username: user.username, isAdmin: !!user.is_admin || user.username.toLowerCase() === 'karan singh' || user.username.toLowerCase() === 'admin' });
+        }
         return reject(new Error('Invalid credentials'));
       }
 
-      db.get('SELECT id, username FROM users WHERE username = ? AND password_hash = ?', [username, hash], (err, row) => {
+      db.get('SELECT id, username, is_admin FROM users WHERE LOWER(username) = LOWER(?) AND password_hash = ?', [username, hash], (err, row) => {
         if (err || !row) return reject(new Error('Invalid credentials'));
-        resolve(row);
+        resolve({ id: row.id, username: row.username, isAdmin: !!row.is_admin || row.username.toLowerCase() === 'karan singh' || row.username.toLowerCase() === 'admin' });
+      });
+    });
+  },
+
+  getUserById: (userId) => {
+    return new Promise((resolve) => {
+      if (useJsonFallback || !db) {
+        const u = (jsonStore.users || []).find(x => x.id === userId);
+        return resolve(u ? { id: u.id, username: u.username, isAdmin: !!u.is_admin || u.username.toLowerCase() === 'karan singh' || u.username.toLowerCase() === 'admin', created_at: u.created_at } : null);
+      }
+      db.get('SELECT id, username, is_admin, created_at FROM users WHERE id = ?', [userId], (err, row) => {
+        if (err || !row) resolve(null);
+        else resolve({ id: row.id, username: row.username, isAdmin: !!row.is_admin || row.username.toLowerCase() === 'karan singh' || row.username.toLowerCase() === 'admin', created_at: row.created_at });
       });
     });
   },
@@ -351,10 +416,10 @@ const DatabaseAPI = {
   getAllUsers: () => {
     return new Promise((resolve) => {
       if (useJsonFallback || !db) {
-        return resolve(jsonStore.users || []);
+        return resolve((jsonStore.users || []).map(u => ({ id: u.id, username: u.username, is_admin: u.is_admin, created_at: u.created_at })));
       }
-      db.all('SELECT id, username, created_at FROM users', [], (err, rows) => {
-        if (err || !rows) resolve(jsonStore.users || []);
+      db.all('SELECT id, username, is_admin, created_at FROM users ORDER BY is_admin DESC, created_at ASC', [], (err, rows) => {
+        if (err || !rows) resolve((jsonStore.users || []).map(u => ({ id: u.id, username: u.username, is_admin: u.is_admin, created_at: u.created_at })));
         else resolve(rows);
       });
     });
@@ -388,6 +453,10 @@ const DatabaseAPI = {
         else {
           const parsed = rows.map(r => ({
             ...r,
+            text: r.text,
+            isEdited: !!r.is_edited,
+            attachment: r.attachment ? (typeof r.attachment === 'string' ? JSON.parse(r.attachment) : r.attachment) : null,
+            codeSnippet: r.code_snippet ? (typeof r.code_snippet === 'string' ? JSON.parse(r.code_snippet) : r.code_snippet) : null,
             user: { username: r.username, avatar: r.user_avatar }
           }));
           resolve(parsed);
@@ -408,12 +477,51 @@ const DatabaseAPI = {
         const avatar = msg.user ? (msg.user.avatar || '⚡') : '🤖';
 
         db.run(
-          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [msg.id, msg.roomId, username, avatar, msg.text || '', JSON.stringify(msg.attachment || null), JSON.stringify(msg.codeSnippet || null), msg.timestamp],
+          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [msg.id, msg.roomId, username, avatar, msg.text || '', JSON.stringify(msg.attachment || null), JSON.stringify(msg.codeSnippet || null), msg.timestamp, msg.isEdited ? 1 : 0],
           () => resolve(msg)
         );
       } else {
         resolve(msg);
+      }
+    });
+  },
+
+  editMessage: (messageId, newText) => {
+    return new Promise((resolve) => {
+      for (const roomId in jsonStore.messages) {
+        const found = jsonStore.messages[roomId].find(m => m.id === messageId);
+        if (found) {
+          found.text = newText;
+          found.isEdited = true;
+          saveJsonFallback();
+          break;
+        }
+      }
+
+      if (!useJsonFallback && db) {
+        db.run('UPDATE messages SET text = ?, is_edited = 1 WHERE id = ?', [newText, messageId], () => resolve(true));
+      } else {
+        resolve(true);
+      }
+    });
+  },
+
+  deleteMessage: (messageId) => {
+    return new Promise((resolve) => {
+      for (const roomId in jsonStore.messages) {
+        const idx = jsonStore.messages[roomId].findIndex(m => m.id === messageId);
+        if (idx !== -1) {
+          jsonStore.messages[roomId].splice(idx, 1);
+          saveJsonFallback();
+          break;
+        }
+      }
+
+      if (!useJsonFallback && db) {
+        db.run('DELETE FROM messages WHERE id = ?', [messageId], () => resolve(true));
+      } else {
+        resolve(true);
       }
     });
   }
