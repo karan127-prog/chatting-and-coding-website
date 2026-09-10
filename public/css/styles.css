@@ -1094,48 +1094,258 @@ body::before {
   height: 36px;
 }
 
-/* Emoji picker */
+/* ─── EMOJI PICKER POPOVER ─────────────────────────────────────────────── */
 .emoji-picker-popover {
-  display: none;
   position: absolute;
   bottom: calc(100% + 10px);
-  left: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  padding: 10px;
+  right: 20px;
+  width: 290px;
+  background: var(--bg-surface-elevated, #1e293b);
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.15));
+  border-radius: var(--radius-md, 14px);
+  padding: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(10px) scale(0.96);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  z-index: 200;
+}
+
+.emoji-picker-popover.open,
+.emoji-picker-popover.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: all;
+  transform: translateY(0) scale(1);
+}
+
+.emoji-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-close-emojis {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.btn-close-emojis:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.emoji-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 4px;
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(8px);
-  transition: all var(--transition-mid);
-  z-index: 100;
-}
-
-.emoji-picker-popover.open {
-  opacity: 1;
-  pointer-events: all;
-  transform: translateY(0);
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .emoji-option {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-xs);
-  font-size: 18px;
+  border-radius: 8px;
+  font-size: 20px;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  user-select: none;
+  transition: background var(--transition-fast, 0.15s), transform 0.1s;
 }
 
-.emoji-option:hover { background: var(--bg-card-hover); }
+.emoji-option:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(1.18);
+}
+
+/* ─── WHATSAPP-STYLE REPLY DOCK & QUOTED MESSAGES ────────────────────────────── */
+
+/* Reply Preview Dock (Above Input) */
+.chat-reply-preview {
+  display: flex;
+  align-items: stretch;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  animation: slideDownReply 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes slideDownReply {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.reply-preview-stripe {
+  width: 4px;
+  background: linear-gradient(180deg, var(--primary, #6366f1), var(--accent-cyan, #38bdf8));
+  flex-shrink: 0;
+}
+
+.reply-preview-content {
+  flex: 1;
+  padding: 8px 12px;
+  min-width: 0;
+}
+
+.reply-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.reply-preview-author {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-cyan, #38bdf8);
+}
+
+.btn-cancel-reply {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.btn-cancel-reply:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ef4444;
+}
+
+.reply-preview-text {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #cbd5e1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90%;
+}
+
+/* Quoted Reply Bubble inside Message Card */
+.quoted-reply-bubble {
+  display: flex;
+  align-items: stretch;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+  user-select: none;
+}
+
+.quoted-reply-bubble:hover {
+  background: rgba(0, 0, 0, 0.38);
+  transform: translateX(2px);
+}
+
+.quoted-reply-stripe {
+  width: 4px;
+  background: linear-gradient(180deg, #6366f1, #38bdf8);
+  flex-shrink: 0;
+}
+
+.quoted-reply-body {
+  padding: 6px 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quoted-reply-author {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-bottom: 2px;
+}
+
+.quoted-reply-text {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Flash pulse animation when jumping to replied original message */
+@keyframes highlightTargetPulse {
+  0% {
+    background-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.6);
+    transform: scale(1.02);
+  }
+  50% {
+    background-color: rgba(56, 189, 248, 0.3);
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+.message-card.highlight-pulse {
+  animation: highlightTargetPulse 1.6s ease-out;
+  border-radius: 12px;
+}
+
+/* Reply action button in hover actions bar */
+.message-action-btn.reply:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .chat-reply-preview {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+[data-theme="light"] .reply-preview-text {
+  color: #334155;
+}
+[data-theme="light"] .quoted-reply-bubble {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .quoted-reply-text {
+  color: #64748b;
+}
+[data-theme="light"] .emoji-picker-popover {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+}
+[data-theme="light"] .emoji-option:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
 
 /* ─── CODE STUDIO VIEW (VS CODE IDE ENGINE) ─────────────────────────────── */
 .code-studio-view {

@@ -261,6 +261,18 @@
       <!-- Bottom Input Dock -->
       <div class="chat-input-area">
 
+        <!-- WhatsApp-Style Reply Preview Dock -->
+        <div class="chat-reply-preview" id="chat-reply-preview" style="display:none;">
+          <div class="reply-preview-stripe"></div>
+          <div class="reply-preview-content">
+            <div class="reply-preview-header">
+              <span class="reply-preview-author" id="reply-preview-author">Replying to User</span>
+              <button class="btn-cancel-reply" id="btn-cancel-reply" title="Cancel reply">✕</button>
+            </div>
+            <div class="reply-preview-text" id="reply-preview-text"></div>
+          </div>
+        </div>
+
         <!-- Text Input -->
         <div class="input-container" id="input-container">
           <textarea class="chat-textarea" id="chat-textarea" placeholder="Message the group…" rows="1"></textarea>
@@ -286,18 +298,48 @@
 
         <!-- Emoji Popover -->
         <div class="emoji-picker-popover" id="emoji-picker">
-          <span class="emoji-option">❤️</span>
-          <span class="emoji-option">🔥</span>
-          <span class="emoji-option">👍</span>
-          <span class="emoji-option">😂</span>
-          <span class="emoji-option">🚀</span>
-          <span class="emoji-option">🎉</span>
-          <span class="emoji-option">💻</span>
-          <span class="emoji-option">👀</span>
-          <span class="emoji-option">💯</span>
-          <span class="emoji-option">✨</span>
-          <span class="emoji-option">🙌</span>
-          <span class="emoji-option">🎵</span>
+          <div class="emoji-picker-header">
+            <span>Emojis</span>
+            <button class="btn-close-emojis" id="btn-close-emojis" type="button">✕</button>
+          </div>
+          <div class="emoji-grid">
+            <span class="emoji-option" title="Smile">😀</span>
+            <span class="emoji-option" title="Grin">😁</span>
+            <span class="emoji-option" title="Joy">😂</span>
+            <span class="emoji-option" title="ROFL">🤣</span>
+            <span class="emoji-option" title="Smiling Eyes">😊</span>
+            <span class="emoji-option" title="Heart Eyes">😍</span>
+            <span class="emoji-option" title="Star-Struck">🤩</span>
+            <span class="emoji-option" title="Cool">😎</span>
+            <span class="emoji-option" title="Thinking">🤔</span>
+            <span class="emoji-option" title="Smirk">😏</span>
+            <span class="emoji-option" title="Wink">😉</span>
+            <span class="emoji-option" title="Party">🥳</span>
+            <span class="emoji-option" title="Fire">🔥</span>
+            <span class="emoji-option" title="Red Heart">❤️</span>
+            <span class="emoji-option" title="Sparkling Heart">💖</span>
+            <span class="emoji-option" title="Sparkles">✨</span>
+            <span class="emoji-option" title="100">💯</span>
+            <span class="emoji-option" title="Thumbs Up">👍</span>
+            <span class="emoji-option" title="Thumbs Down">👎</span>
+            <span class="emoji-option" title="Clapping">👏</span>
+            <span class="emoji-option" title="Raised Hands">🙌</span>
+            <span class="emoji-option" title="Folded Hands">🙏</span>
+            <span class="emoji-option" title="Rocket">🚀</span>
+            <span class="emoji-option" title="Party Popper">🎉</span>
+            <span class="emoji-option" title="Eyes">👀</span>
+            <span class="emoji-option" title="Laptop">💻</span>
+            <span class="emoji-option" title="Lightning">⚡</span>
+            <span class="emoji-option" title="Target">🎯</span>
+            <span class="emoji-option" title="Check Mark">✅</span>
+            <span class="emoji-option" title="Warning">⚠️</span>
+            <span class="emoji-option" title="Musical Note">🎵</span>
+            <span class="emoji-option" title="Coffee">☕</span>
+            <span class="emoji-option" title="Trophy">🏆</span>
+            <span class="emoji-option" title="Salute">🫡</span>
+            <span class="emoji-option" title="Ghost">👻</span>
+            <span class="emoji-option" title="Robot">🤖</span>
+          </div>
         </div>
 
       </div>

@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   let currentRoom = null, activeRoomsList = [], pendingApprovalQueue = [];
   let isHostOfRoom = false, typingTimeout = null, _pendingJoinRoom = null;
+  let currentReplyMessage = null;
 
   // --- Auth Flow ---
   const authView = document.getElementById('auth-view');
@@ -312,6 +313,8 @@ document.addEventListener('DOMContentLoaded', () => {
       currentRoom = null;
       isHostOfRoom = false;
     }
+    clearReply();
+    closeEmojiPicker();
     elLobbyView.style.display = 'block';
     if (elSidebar)    elSidebar.style.display    = 'none';
     if (elMainView)   elMainView.style.display   = 'none';
@@ -586,6 +589,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   socket.on('room_switched', ({room,messages,codeWorkspace,members}) => {
     closeAllModals(); currentRoom=room; isHostOfRoom=!!room.isHost; hideLobbyView();
+    clearReply();
+    closeEmojiPicker();
     if(elRoomIcon)  elRoomIcon.innerText =(room.icon||'💬');
     if(elRoomTitle) elRoomTitle.innerText='#'+room.name+(isHostOfRoom ? '  👑 (Host)' : (room.hostUsername ? `  [Host: ${room.hostUsername}]` : ''));
     if(elRoomDesc)  elRoomDesc.innerText =(room.description||'');
@@ -768,6 +773,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const card=document.createElement('div'); card.className='message-card'+(isSelf?' self':''); 
     card.setAttribute('data-message-id',msg.id);
     card.setAttribute('data-raw-text', msg.text || '');
+    card.setAttribute('data-author', msg.user ? msg.user.username : 'User');
+    card.addEventListener('dblclick', () => window.setReplyMessage(msg.id));
 
     const time=new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     let media='';
@@ -775,8 +782,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if(msg.voiceNote) media+='<div class="voice-note-player"><button class="btn-play-voice" onclick="new Audio(\''+msg.voiceNote.url+'\').play()">▶</button><span style="font-size:0.8rem;color:var(--text-muted);">Voice ('+msg.voiceNote.duration+'s)</span></div>';
     if(msg.codeSnippet) media+='<div class="code-snippet-box"><div class="code-header"><span>'+(msg.codeSnippet.language||'code')+'</span><button style="background:transparent;border:none;color:var(--accent-cyan);cursor:pointer;" onclick="navigator.clipboard.writeText(this.closest(\'.code-snippet-box\').querySelector(\'.code-content\').innerText)">Copy</button></div><div class="code-content">'+escapeHTML(msg.codeSnippet.code)+'</div></div>';
 
+    let quotedHTML = '';
+    if (msg.replyTo && msg.replyTo.id) {
+      quotedHTML = 
+        '<div class="quoted-reply-bubble" onclick="window.scrollToMessage(\''+msg.replyTo.id+'\')" title="Click to view original message">' +
+          '<div class="quoted-reply-stripe"></div>' +
+          '<div class="quoted-reply-body">' +
+            '<div class="quoted-reply-author">'+escapeHTML(msg.replyTo.username || 'User')+'</div>' +
+            '<div class="quoted-reply-text">'+escapeHTML(msg.replyTo.text || '[Attachment]')+'</div>' +
+          '</div>' +
+        '</div>';
+    }
+
     const editedTag = msg.isEdited ? '<span class="message-edited-tag">(edited)</span>' : '';
     const actionsBar = '<div class="message-actions-bar">' +
+      '<button class="message-action-btn reply" onclick="window.setReplyMessage(\''+msg.id+'\')" title="Reply">↩️</button>' +
       '<button class="message-action-btn react" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\')" title="React">➕</button>' +
       (canEdit ? '<button class="message-action-btn edit" onclick="window.startEditMessage(\''+msg.id+'\')" title="Edit message">✏️</button>' : '') +
       (canDelete ? '<button class="message-action-btn delete" onclick="window.deleteMessage(\''+msg.id+'\')" title="Delete message">🗑️</button>' : '') +
@@ -793,6 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
           actionsBar +
         '</div>' +
         '<div class="message-bubble">' +
+          quotedHTML +
           (msg.text ? '<span class="message-text-content">'+fmt(msg.text)+'</span>' : '') +
           media +
         '</div>' +
@@ -872,24 +893,185 @@ document.addEventListener('DOMContentLoaded', () => {
   window.toggleReaction=(mid,rid,emoji)=>socket.emit('toggle_reaction',{messageId:mid,roomId:rid,emoji});
   window.toggleEmojiPopForMessage=mid=>{ const e=['❤️','🔥','👍','😂','🚀','🎉']; socket.emit('toggle_reaction',{messageId:mid,roomId:currentRoom?.id,emoji:e[Math.floor(Math.random()*e.length)]}); };
 
+  // --- WhatsApp-Style Reply Handlers ---
+  const clearReply = () => {
+    currentReplyMessage = null;
+    const preview = document.getElementById('chat-reply-preview');
+    if (preview) preview.style.display = 'none';
+  };
+
+  window.setReplyMessage = (mid) => {
+    const card = document.querySelector('[data-message-id="' + mid + '"]');
+    if (!card) return;
+    const author = card.getAttribute('data-author') || card.querySelector('.message-author')?.innerText || 'User';
+    const rawText = card.getAttribute('data-raw-text') || '';
+    let previewText = rawText;
+    if (!previewText) {
+      if (card.querySelector('.message-image-embed')) previewText = '📷 [Image]';
+      else if (card.querySelector('.voice-note-player')) previewText = '🎙️ [Voice Note]';
+      else if (card.querySelector('.code-snippet-box')) previewText = '💻 [Code Snippet]';
+      else if (card.querySelector('a')) previewText = '📎 [Attachment]';
+      else previewText = '[Message]';
+    }
+
+    currentReplyMessage = {
+      id: mid,
+      username: author,
+      text: previewText.length > 80 ? previewText.substring(0, 80) + '…' : previewText
+    };
+
+    const preview = document.getElementById('chat-reply-preview');
+    const authorEl = document.getElementById('reply-preview-author');
+    const textEl = document.getElementById('reply-preview-text');
+    if (authorEl) authorEl.innerText = 'Replying to ' + author;
+    if (textEl) textEl.innerText = currentReplyMessage.text;
+    if (preview) {
+      preview.style.display = 'flex';
+      preview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    elTextarea?.focus();
+  };
+
+  window.scrollToMessage = (mid) => {
+    if (!elTimeline || !mid) return;
+    const target = elTimeline.querySelector('[data-message-id="' + mid + '"]');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.remove('highlight-pulse');
+      void target.offsetWidth; // force reflow
+      target.classList.add('highlight-pulse');
+      setTimeout(() => target.classList.remove('highlight-pulse'), 1700);
+    } else {
+      showToast('Original message not found in view', 'info');
+    }
+  };
+
+  document.getElementById('btn-cancel-reply')?.addEventListener('click', clearReply);
+
   // Chat Input
-  const sendMessage=()=>{ const t=elTextarea?.value.trim(); if(!t||!currentRoom) return; socket.emit('send_message',{roomId:currentRoom.id,text:t}); elTextarea.value=''; elTextarea.style.height='auto'; socket.emit('typing',{roomId:currentRoom.id,isTyping:false}); };
+  const sendMessage=()=>{ 
+    const t=elTextarea?.value.trim(); 
+    if(!t||!currentRoom) return; 
+    socket.emit('send_message',{
+      roomId: currentRoom.id,
+      text: t,
+      replyTo: currentReplyMessage ? { ...currentReplyMessage } : null
+    }); 
+    elTextarea.value=''; 
+    elTextarea.style.height='auto'; 
+    clearReply();
+    socket.emit('typing',{roomId:currentRoom.id,isTyping:false}); 
+  };
   elSendBtn?.addEventListener('click', sendMessage);
-  elTextarea?.addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
+  elTextarea?.addEventListener('keydown', e=>{ 
+    if(e.key==='Enter'&&!e.shiftKey){
+      e.preventDefault();
+      sendMessage();
+    } else if (e.key === 'Escape') {
+      clearReply();
+      closeEmojiPicker();
+    }
+  });
   elTextarea?.addEventListener('input', ()=>{ elTextarea.style.height='auto'; elTextarea.style.height=Math.min(elTextarea.scrollHeight,120)+'px'; if(!currentRoom) return; socket.emit('typing',{roomId:currentRoom.id,isTyping:true}); clearTimeout(typingTimeout); typingTimeout=setTimeout(()=>socket.emit('typing',{roomId:currentRoom.id,isTyping:false}),1500); });
 
   // Voice
   document.getElementById('btn-record-voice')?.addEventListener('click', async()=>{ document.getElementById('input-container').style.display='none'; document.getElementById('voice-recording-dock').classList.add('active'); await voiceRecorder.startRecording(document.getElementById('waveform-canvas'),document.getElementById('recording-timer')); });
   document.getElementById('btn-cancel-voice')?.addEventListener('click', ()=>{ voiceRecorder.cancelRecording(); document.getElementById('voice-recording-dock').classList.remove('active'); document.getElementById('input-container').style.display='flex'; });
-  document.getElementById('btn-send-voice')?.addEventListener('click', async()=>{ const r=await voiceRecorder.stopRecording(); document.getElementById('voice-recording-dock').classList.remove('active'); document.getElementById('input-container').style.display='flex'; if(r?.blob&&currentRoom){const fd=new FormData();fd.append('file',r.blob,'voice.webm');try{const res=await fetch('/api/upload',{method:'POST',body:fd});const d=await res.json();socket.emit('send_message',{roomId:currentRoom.id,text:'',voiceNote:{url:d.url,duration:r.duration||3}});}catch(e){showToast('Upload failed','error');}} });
+  document.getElementById('btn-send-voice')?.addEventListener('click', async()=>{ 
+    const r=await voiceRecorder.stopRecording(); 
+    document.getElementById('voice-recording-dock').classList.remove('active'); 
+    document.getElementById('input-container').style.display='flex'; 
+    if(r?.blob&&currentRoom){
+      const fd=new FormData();
+      fd.append('file',r.blob,'voice.webm');
+      try{
+        const res=await fetch('/api/upload',{method:'POST',body:fd});
+        const d=await res.json();
+        socket.emit('send_message',{
+          roomId:currentRoom.id,
+          text:'',
+          voiceNote:{url:d.url,duration:r.duration||3},
+          replyTo: currentReplyMessage ? { ...currentReplyMessage } : null
+        });
+        clearReply();
+      }catch(e){showToast('Upload failed','error');}
+    } 
+  });
 
   // File Attach
   document.getElementById('btn-attach-file')?.addEventListener('click', ()=>document.getElementById('file-input')?.click());
-  document.getElementById('file-input')?.addEventListener('change', async()=>{ const fi=document.getElementById('file-input'); if(!fi?.files?.length||!currentRoom) return; const f=fi.files[0]; const fd=new FormData(); fd.append('file',f); try{const res=await fetch('/api/upload',{method:'POST',body:fd});const d=await res.json();socket.emit('send_message',{roomId:currentRoom.id,text:'Shared: **'+f.name+'**',attachment:d});fi.value='';}catch(e){showToast('Upload failed','error');} });
+  document.getElementById('file-input')?.addEventListener('change', async()=>{ 
+    const fi=document.getElementById('file-input'); 
+    if(!fi?.files?.length||!currentRoom) return; 
+    const f=fi.files[0]; 
+    const fd=new FormData(); 
+    fd.append('file',f); 
+    try{
+      const res=await fetch('/api/upload',{method:'POST',body:fd});
+      const d=await res.json();
+      socket.emit('send_message',{
+        roomId:currentRoom.id,
+        text:'Shared: **'+f.name+'**',
+        attachment:d,
+        replyTo: currentReplyMessage ? { ...currentReplyMessage } : null
+      });
+      fi.value='';
+      clearReply();
+    }catch(e){showToast('Upload failed','error');} 
+  });
 
   // Emoji Picker
-  document.getElementById('btn-emoji-toggle')?.addEventListener('click', ()=>document.getElementById('emoji-picker')?.classList.toggle('active'));
-  document.querySelectorAll('.emoji-option').forEach(e=>{ e.addEventListener('click', ()=>{ if(elTextarea) elTextarea.value+=e.innerText; document.getElementById('emoji-picker')?.classList.remove('active'); elTextarea?.focus(); }); });
+  const emojiPicker = document.getElementById('emoji-picker');
+  const emojiToggleBtn = document.getElementById('btn-emoji-toggle');
+  const closeEmojiBtn = document.getElementById('btn-close-emojis');
+
+  const toggleEmojiPicker = (e) => {
+    e?.stopPropagation();
+    if (emojiPicker) {
+      const isOpen = emojiPicker.classList.contains('active') || emojiPicker.classList.contains('open');
+      if (isOpen) {
+        emojiPicker.classList.remove('active', 'open');
+      } else {
+        emojiPicker.classList.add('active', 'open');
+      }
+    }
+  };
+
+  const closeEmojiPicker = () => {
+    emojiPicker?.classList.remove('active', 'open');
+  };
+
+  emojiToggleBtn?.addEventListener('click', toggleEmojiPicker);
+  closeEmojiBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeEmojiPicker();
+  });
+
+  document.querySelectorAll('.emoji-option').forEach(e => {
+    e.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      const emoji = e.innerText.trim();
+      if (elTextarea) {
+        const start = elTextarea.selectionStart !== undefined ? elTextarea.selectionStart : elTextarea.value.length;
+        const end = elTextarea.selectionEnd !== undefined ? elTextarea.selectionEnd : elTextarea.value.length;
+        const text = elTextarea.value;
+        elTextarea.value = text.substring(0, start) + emoji + text.substring(end);
+        elTextarea.selectionStart = elTextarea.selectionEnd = start + emoji.length;
+        elTextarea.focus();
+        elTextarea.dispatchEvent(new Event('input'));
+      }
+      closeEmojiPicker();
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (emojiPicker?.classList.contains('active') || emojiPicker?.classList.contains('open')) {
+      if (!emojiPicker.contains(e.target) && e.target !== emojiToggleBtn && !emojiToggleBtn?.contains(e.target)) {
+        closeEmojiPicker();
+      }
+    }
+  });
   document.getElementById('btn-code-modal')?.addEventListener('click', ()=>{ if(currentRoom) switchViewMode('code'); else showToast('Join a room first','info'); });
 
   // Create Room Modal

@@ -1112,7 +1112,7 @@ io.on('connection', (socket) => {
   }
 
   // Incoming Messages
-  socket.on('send_message', async ({ roomId, text, attachment, voiceNote, codeSnippet }) => {
+  socket.on('send_message', async ({ roomId, text, attachment, voiceNote, codeSnippet, replyTo }) => {
     const sender = activeUsers.get(socket.id);
     if (!sender) return;
 
@@ -1124,6 +1124,7 @@ io.on('connection', (socket) => {
       attachment: attachment || null,
       voiceNote: voiceNote || null,
       codeSnippet: codeSnippet || null,
+      replyTo: replyTo || null,
       timestamp: new Date().toISOString(),
       reactions: {}
     };

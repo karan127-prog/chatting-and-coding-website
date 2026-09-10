@@ -166,11 +166,13 @@ function createTables() {
       attachment TEXT,
       code_snippet TEXT,
       timestamp TEXT,
-      is_edited INTEGER DEFAULT 0
+      is_edited INTEGER DEFAULT 0,
+      reply_to TEXT
     )`);
 
-    // Ensure is_edited column exists in case messages table was created previously
+    // Ensure columns exist in case messages table was created previously
     db.run(`ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE messages ADD COLUMN reply_to TEXT`, () => {});
 
     // User Extensions Table
     db.run(`CREATE TABLE IF NOT EXISTS user_extensions (
@@ -457,6 +459,7 @@ const DatabaseAPI = {
             isEdited: !!r.is_edited,
             attachment: r.attachment ? (typeof r.attachment === 'string' ? JSON.parse(r.attachment) : r.attachment) : null,
             codeSnippet: r.code_snippet ? (typeof r.code_snippet === 'string' ? JSON.parse(r.code_snippet) : r.code_snippet) : null,
+            replyTo: r.reply_to ? (typeof r.reply_to === 'string' ? JSON.parse(r.reply_to) : r.reply_to) : null,
             user: { username: r.username, avatar: r.user_avatar }
           }));
           resolve(parsed);
@@ -477,8 +480,19 @@ const DatabaseAPI = {
         const avatar = msg.user ? (msg.user.avatar || '⚡') : '🤖';
 
         db.run(
-          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [msg.id, msg.roomId, username, avatar, msg.text || '', JSON.stringify(msg.attachment || null), JSON.stringify(msg.codeSnippet || null), msg.timestamp, msg.isEdited ? 1 : 0],
+          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            msg.id,
+            msg.roomId,
+            username,
+            avatar,
+            msg.text || '',
+            JSON.stringify(msg.attachment || null),
+            JSON.stringify(msg.codeSnippet || null),
+            msg.timestamp,
+            msg.isEdited ? 1 : 0,
+            JSON.stringify(msg.replyTo || null)
+          ],
           () => resolve(msg)
         );
       } else {
