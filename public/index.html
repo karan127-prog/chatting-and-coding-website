@@ -59,7 +59,7 @@
           <button id="btn-auth-guest" class="btn-lobby-action" style="padding:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2);">Continue as Guest</button>
         </div>
         
-        <button id="btn-auth-close" class="btn-lobby-action" style="width:100%; padding:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#aaa;">Return to Lobby</button>
+        <button id="btn-auth-close" class="btn-lobby-action" style="display:none; width:100%; padding:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#aaa;">Return to Lobby</button>
         
         <div id="auth-error-msg" style="color:#ff5f56; margin-top:15px; font-size:0.9rem; display:none;"></div>
       </div>
@@ -90,14 +90,14 @@
           <button class="btn-lobby-action" id="lobby-btn-create-room">
             ➕ Create Custom Room
           </button>
-          <div id="lobby-auth-user" style="display:flex; align-items:center; gap:8px;">
+          <div id="lobby-auth-user" style="display:none; align-items:center; gap:8px;">
             <button class="btn-profile-trigger" id="lobby-btn-profile" title="Profile & Settings">
               <div class="user-avatar" id="lobby-user-avatar">⚡</div>
-              <span id="lobby-username">Developer</span>
+              <span id="lobby-username"></span>
               <span class="profile-dropdown-arrow">▾</span>
             </button>
           </div>
-          <div id="lobby-auth-guest" style="display:none; align-items:center; gap:8px;">
+          <div id="lobby-auth-guest" style="display:flex; align-items:center; gap:8px;">
             <button class="btn-lobby-action" id="lobby-btn-login-prompt" style="padding:8px 16px; border:1px solid rgba(255,255,255,0.2);">Login</button>
             <button class="btn-lobby-action primary" id="lobby-btn-signup-prompt" style="padding:8px 16px;">Sign Up</button>
           </div>

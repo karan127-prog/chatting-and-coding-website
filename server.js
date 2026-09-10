@@ -798,30 +798,40 @@ io.on('connection', (socket) => {
       socket.emit('session_synced', { sessionId: sid });
     }
 
-    const user = {
-      id: socket.id,
-      userId: userData.token || null,
-      sessionId: userData.sessionId || (session ? session.sessionId : null),
-      username: userData.username || `User_${socket.id.substring(0, 4)}`,
-      avatar: userData.avatar || '⚡',
-      status: userData.status || 'online',
-      customStatus: userData.customStatus || 'Active member',
-      joinedAt: new Date().toISOString()
-    };
+    if (userData && userData.username) {
+      const user = {
+        id: socket.id,
+        userId: userData.token || null,
+        sessionId: userData.sessionId || (session ? session.sessionId : null),
+        username: userData.username,
+        avatar: userData.avatar || '⚡',
+        status: userData.status || 'online',
+        customStatus: userData.customStatus || 'Active member',
+        joinedAt: new Date().toISOString()
+      };
 
-    activeUsers.set(socket.id, user);
-    const roomsList = await getPublicRooms();
+      activeUsers.set(socket.id, user);
+      const roomsList = await getPublicRooms();
 
-    socket.emit('init_payload', {
-      user,
-      rooms: roomsList,
-      activeUsers: Array.from(activeUsers.values())
-    });
+      socket.emit('init_payload', {
+        user,
+        rooms: roomsList,
+        activeUsers: Array.from(activeUsers.values())
+      });
 
-    io.emit('user_status_change', {
-      user,
-      activeUsers: Array.from(activeUsers.values())
-    });
+      io.emit('user_status_change', {
+        user,
+        activeUsers: Array.from(activeUsers.values())
+      });
+    } else {
+      // Unauthenticated visitor: do not auto-create an account
+      const roomsList = await getPublicRooms();
+      socket.emit('init_payload', {
+        user: null,
+        rooms: roomsList,
+        activeUsers: Array.from(activeUsers.values())
+      });
+    }
   });
 
   // Handle explicit create_room from client

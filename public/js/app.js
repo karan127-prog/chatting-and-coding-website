@@ -60,28 +60,48 @@ document.addEventListener('DOMContentLoaded', () => {
   if (storedUser) {
     try {
       const data = JSON.parse(storedUser);
-      currentUser.username = data.username;
-      currentUser.token = data.token;
-      currentUser.sessionId = data.sessionId || '';
-      currentUser.isAdmin = !!data.isAdmin || (data.username && (data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin'));
-      authView.style.display = 'none';
-      socket.emit('register_user', currentUser);
-      socket.emit('user_join', currentUser);
-      socket._registered = true;
-    } catch (e) {}
+      if (data && data.username && data.token) {
+        currentUser.username = data.username;
+        currentUser.token = data.token;
+        currentUser.sessionId = data.sessionId || '';
+        currentUser.isAdmin = !!data.isAdmin || (data.username && (data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin'));
+        authView.style.display = 'none';
+        socket.emit('register_user', currentUser);
+        socket.emit('user_join', currentUser);
+        socket._registered = true;
+      } else {
+        localStorage.removeItem('pulsechat_user');
+        currentUser.username = '';
+        authView.style.display = 'flex';
+      }
+    } catch (e) {
+      localStorage.removeItem('pulsechat_user');
+      currentUser.username = '';
+      authView.style.display = 'flex';
+    }
+  } else {
+    // First time opening website: MUST ask to log in
+    currentUser.username = '';
+    currentUser.token = '';
+    currentUser.sessionId = '';
+    currentUser.isAdmin = false;
+    authView.style.display = 'flex';
   }
 
   const updateAuthUI = () => {
     const userContainer = document.getElementById('lobby-auth-user');
     const guestContainer = document.getElementById('lobby-auth-guest');
+    const authCloseBtn = document.getElementById('btn-auth-close');
     if (currentUser.username) {
       if(userContainer) userContainer.style.display = 'flex';
       if(guestContainer) guestContainer.style.display = 'none';
       const b=document.getElementById('lobby-username'); if(b) b.innerText=currentUser.username;
       const av=document.getElementById('lobby-user-avatar'); if(av) av.innerText=(currentUser.username[0]||'?').toUpperCase();
+      if(authCloseBtn) authCloseBtn.style.display = 'block';
     } else {
       if(userContainer) userContainer.style.display = 'none';
       if(guestContainer) guestContainer.style.display = 'flex';
+      if(authCloseBtn) authCloseBtn.style.display = 'none';
     }
 
     // Admin Dashboard Option: ONLY shown to main admin
@@ -91,6 +111,8 @@ document.addEventListener('DOMContentLoaded', () => {
       adminBtn.style.display = isMainAdmin ? 'flex' : 'none';
     }
   };
+
+  updateAuthUI();
 
   const requireAuth = (requireFullAccount = false) => {
     if (!currentUser.username) {
@@ -177,7 +199,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('lobby-btn-login-prompt')?.addEventListener('click', () => { authView.style.display = 'flex'; });
   document.getElementById('lobby-btn-signup-prompt')?.addEventListener('click', () => { authView.style.display = 'flex'; });
-  document.getElementById('btn-auth-close')?.addEventListener('click', () => { authView.style.display = 'none'; });
+  document.getElementById('btn-auth-close')?.addEventListener('click', () => { 
+    if (!currentUser.username) {
+      showToast('Please log in or create an account to access the platform.', 'info');
+      return;
+    }
+    authView.style.display = 'none'; 
+  });
 
   // Managers
   const voiceRecorder    = new window.VoiceRecorder();
@@ -518,12 +546,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   socket.on('init_payload', data => {
     socket._registered=true;
-    if(data.user) currentUser={...currentUser,...data.user};
+    if(data.user && data.user.username) {
+      currentUser={...currentUser,...data.user};
+    }
     activeRoomsList=data.rooms||[];
-    updateUserProfileUI(); renderChannelsList(activeRoomsList); renderActiveUsersList(data.activeUsers||[]);
+    updateUserProfileUI(); 
+    updateAuthUI();
+    renderChannelsList(activeRoomsList); 
+    renderActiveUsersList(data.activeUsers||[]);
     fetchAndRenderLobbyRooms();
     const ln=document.getElementById('lobby-username'); if(ln&&currentUser.username) ln.innerText=currentUser.username;
-    const la=document.getElementById('lobby-user-avatar'); if(la) la.innerText=currentUser.avatar;
+    const la=document.getElementById('lobby-user-avatar'); if(la&&currentUser.username) la.innerText=currentUser.avatar;
     if(socket._pendingAction){ const a=socket._pendingAction; socket._pendingAction=null; setTimeout(a,100); }
   });
 
@@ -565,6 +598,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (currentUser.username) {
       socket.emit('register_user', currentUser);
       socket.emit('user_join', currentUser);
+    } else {
+      socket.emit('user_join', {});
     }
   });
 
@@ -652,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Renderers
   const updateUserProfileUI = () => {
     const avatar = currentUser.avatar || '⚡';
-    const username = currentUser.username || 'Developer';
+    const username = currentUser.username || '';
     const statusText = currentUser.customStatus || 'Online';
 
     if(elCurrentAvatar)     elCurrentAvatar.innerText    = avatar;
