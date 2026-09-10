@@ -379,6 +379,7 @@
     <main class="whiteboard-main" id="whiteboard-main-view" style="display:none; position:relative; flex:1; background:#0f172a;">
       <div class="whiteboard-toolbar" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(30,41,59,0.95); padding:8px 18px; border-radius:30px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display:flex; gap:10px; align-items:center; border: 1px solid rgba(255,255,255,0.1);">
         <button class="btn-header-action btn-go-home" title="Go to Home" style="border:none;">🏠</button>
+        <button class="btn-header-action" id="wb-btn-back-chat" title="Back to Chat" style="border:none; padding:4px 10px; font-size:0.75rem;">💬 Chat</button>
         <div style="width:1px; height:20px; background:rgba(255,255,255,0.1);"></div>
         <button class="wb-tool-btn active" data-tool="brush" title="Freehand Brush">✏️</button>
         <button class="wb-tool-btn" data-tool="rect" title="Rectangle">⬜</button>
@@ -987,6 +988,18 @@
       }
     })();
   </script>
+
+  <!-- Floating Emoji Reaction Picker Popup -->
+  <div class="message-reaction-picker" id="message-reaction-picker" style="display:none;">
+    <button class="reaction-emoji-btn" data-emoji="❤️" title="Heart">❤️</button>
+    <button class="reaction-emoji-btn" data-emoji="👍" title="Thumbs Up">👍</button>
+    <button class="reaction-emoji-btn" data-emoji="😂" title="Laugh">😂</button>
+    <button class="reaction-emoji-btn" data-emoji="🔥" title="Fire">🔥</button>
+    <button class="reaction-emoji-btn" data-emoji="🎉" title="Party">🎉</button>
+    <button class="reaction-emoji-btn" data-emoji="🚀" title="Rocket">🚀</button>
+    <button class="reaction-emoji-btn" data-emoji="👏" title="Clap">👏</button>
+    <button class="reaction-emoji-btn" data-emoji="😮" title="Surprised">😮</button>
+  </div>
 
 </body>
 </html>

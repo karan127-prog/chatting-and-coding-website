@@ -586,20 +586,22 @@ const activeSessions = new Map();
 
 const getPublicRooms = async () => {
   const dbRooms = await DatabaseAPI.getAllRooms();
-  return dbRooms.map((r) => {
-    const roomSockets = io.sockets.adapter.rooms.get(r.id);
-    return {
-      id: r.id,
-      name: r.name,
-      description: r.description,
-      icon: r.icon || '💬',
-      hasPassword: !!r.password,
-      hostUsername: r.host_username || 'System',
-      tags: r.tags ? r.tags.split(',') : ['code'],
-      language: r.language || 'python',
-      activeMembersCount: roomSockets ? roomSockets.size : 0
-    };
-  });
+  return dbRooms
+    .filter((r) => !r.id.startsWith('dm_') && !(r.tags && r.tags.includes('dm')))
+    .map((r) => {
+      const roomSockets = io.sockets.adapter.rooms.get(r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        icon: r.icon || '💬',
+        hasPassword: !!r.password,
+        hostUsername: r.host_username || 'System',
+        tags: r.tags ? (Array.isArray(r.tags) ? r.tags : r.tags.split(',')) : ['code'],
+        language: r.language || 'python',
+        activeMembersCount: roomSockets ? roomSockets.size : 0
+      };
+    });
 };
 
 const handleBotMention = (roomId, messageText, senderUser) => {
@@ -886,6 +888,18 @@ io.on('connection', (socket) => {
     const user = activeUsers.get(socket.id);
     if (!user) return;
 
+    // Strict Direct Message (DM) Security: only authorized participants may join
+    const isDm = roomId.startsWith('dm_');
+    if (isDm) {
+      const dmSlug = roomId.substring(3);
+      const parts = dmSlug.split('__');
+      const userLower = user.username.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      const isAllowed = parts.some(p => p.toLowerCase() === userLower || user.username.toLowerCase() === p.toLowerCase());
+      if (!isAllowed) {
+        return socket.emit('join_error', { message: 'This direct message conversation is strictly private.' });
+      }
+    }
+
     const allDbRooms = await DatabaseAPI.getAllRooms();
     let targetRoom = allDbRooms.find(r => r.id === roomId);
 
@@ -893,12 +907,12 @@ io.on('connection', (socket) => {
     if (!targetRoom) {
       const newRoomData = {
         id: roomId,
-        name: roomId,
-        description: 'Custom protected room',
-        icon: '🔒',
+        name: isDm ? roomId : roomId,
+        description: isDm ? 'Private Direct Message' : 'Custom protected room',
+        icon: isDm ? '💬' : '🔒',
         password: password || '',
         host_username: user.username,
-        tags: 'custom,private',
+        tags: isDm ? 'dm,private' : 'custom,private',
         language: 'python'
       };
 
@@ -1099,16 +1113,6 @@ io.on('connection', (socket) => {
 
     io.to(targetRoom.id).emit('room_members_updated', membersList);
 
-    const sysMsg = {
-      id: 'sys-' + Date.now(),
-      roomId: targetRoom.id,
-      isSystem: true,
-      text: `✨ **${user ? user.username : 'User'}** entered #${targetRoom.name}!`,
-      timestamp: new Date().toISOString()
-    };
-    await DatabaseAPI.saveMessage(sysMsg);
-    io.to(targetRoom.id).emit('message_received', sysMsg);
-
     // Broadcast updated public room member counts to front page
     const roomsList = await getPublicRooms();
     io.emit('rooms_updated', roomsList);
@@ -1134,6 +1138,40 @@ io.on('connection', (socket) => {
 
     await DatabaseAPI.saveMessage(message);
     io.to(roomId).emit('message_received', message);
+
+    // Notify users in other rooms / offline participants of new activity
+    const isDm = roomId.startsWith('dm_');
+    const allDbRooms = await DatabaseAPI.getAllRooms();
+    const currentRoomMeta = allDbRooms.find(r => r.id === roomId);
+    const roomDisplayName = currentRoomMeta ? currentRoomMeta.name : roomId;
+
+    if (isDm) {
+      // Direct message: notify recipient privately
+      for (const [sid, u] of activeUsers.entries()) {
+        if (sid !== socket.id && roomId.toLowerCase().includes(u.username.toLowerCase().replace(/[^a-z0-9_]/g, '_'))) {
+          io.to(sid).emit('channel_activity', {
+            roomId,
+            roomName: `@${sender.username}`,
+            sender: sender.username,
+            avatar: sender.avatar,
+            text: text || (attachment ? '[Attachment]' : (voiceNote ? '[Voice Note]' : '[Message]')),
+            isDm: true,
+            timestamp: message.timestamp
+          });
+        }
+      }
+    } else {
+      // Group channel: broadcast notification to all other users
+      socket.broadcast.emit('channel_activity', {
+        roomId,
+        roomName: roomDisplayName,
+        sender: sender.username,
+        avatar: sender.avatar,
+        text: text || (attachment ? '[Attachment]' : (voiceNote ? '[Voice Note]' : '[Message]')),
+        isDm: false,
+        timestamp: message.timestamp
+      });
+    }
 
     if (text && (text.includes('@PulseBot') || text.startsWith('/'))) {
       handleBotMention(roomId, text, sender);
@@ -1163,6 +1201,38 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('message_deleted', {
       messageId,
       roomId
+    });
+  });
+
+  // Message Reactions
+  socket.on('toggle_reaction', async ({ roomId, messageId, emoji }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user || !roomId || !messageId || !emoji) return;
+
+    const messages = await DatabaseAPI.getRoomMessages(roomId);
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg) return;
+
+    if (!msg.reactions) msg.reactions = {};
+    if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
+
+    const username = user.username;
+    const userIndex = msg.reactions[emoji].indexOf(username);
+    if (userIndex > -1) {
+      msg.reactions[emoji].splice(userIndex, 1);
+      if (msg.reactions[emoji].length === 0) {
+        delete msg.reactions[emoji];
+      }
+    } else {
+      msg.reactions[emoji].push(username);
+    }
+
+    await DatabaseAPI.updateMessageReactions(roomId, messageId, msg.reactions);
+
+    io.to(roomId).emit('reaction_updated', {
+      roomId,
+      messageId,
+      reactions: msg.reactions
     });
   });
 

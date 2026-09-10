@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentRoom = null, activeRoomsList = [], pendingApprovalQueue = [];
   let isHostOfRoom = false, typingTimeout = null, _pendingJoinRoom = null;
   let currentReplyMessage = null;
+  const unreadCounts = {};
 
   // --- Auth Flow ---
   const authView = document.getElementById('auth-view');
@@ -359,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnModeCode?.addEventListener('click', ()=>switchViewMode('code'));
   btnModeWhiteboard?.addEventListener('click', ()=>switchViewMode('whiteboard'));
   btnStudioBackChat?.addEventListener('click', ()=>switchViewMode('chat'));
+  document.getElementById('wb-btn-back-chat')?.addEventListener('click', ()=>switchViewMode('chat'));
   btnBackToLobby?.addEventListener('click', ()=>showLobbyView());
   document.querySelectorAll('.btn-go-home').forEach(btn => btn.addEventListener('click', ()=>showLobbyView()));
 
@@ -593,6 +595,9 @@ document.addEventListener('DOMContentLoaded', () => {
     closeAllModals(); currentRoom=room; isHostOfRoom=!!room.isHost; hideLobbyView();
     clearReply();
     closeEmojiPicker();
+    if (room && room.id) {
+      unreadCounts[room.id] = 0;
+    }
     updatePinnedBanner(room.pinnedMessage);
     if(elRoomIcon)  elRoomIcon.innerText =(room.icon||'💬');
     if(elRoomTitle) elRoomTitle.innerText='#'+room.name+(isHostOfRoom ? '  👑 (Host)' : (room.hostUsername ? `  [Host: ${room.hostUsername}]` : ''));
@@ -754,6 +759,52 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('user_typing', ({roomId,username,isTyping})=>{ if(currentRoom&&roomId===currentRoom.id){if(elTypingBar) elTypingBar.style.visibility=isTyping?'visible':'hidden';if(isTyping&&elTypingText) elTypingText.innerText=username+' is typing…';} });
   socket.on('user_status_change', ({activeUsers})=>{ renderActiveUsersList(activeUsers); const s=document.getElementById('stat-active-users');if(s) s.innerText=activeUsers.length; });
 
+  // ─── Group & DM Message Activity Notifications ─────────────────────────────
+  socket.on('channel_activity', data => {
+    if (currentRoom && data.roomId === currentRoom.id) return;
+    if (data.sender && data.sender === currentUser.username) return;
+
+    if (data.isDM && data.sender) {
+      knownDMs.add(data.sender);
+      saveKnownDMs();
+    }
+
+    unreadCounts[data.roomId] = (unreadCounts[data.roomId] || 0) + 1;
+    renderChannelsList(activeRoomsList);
+    renderDMList();
+
+    playSoundEffect('alert');
+
+    const previewMsg = data.isDM
+      ? `💬 DM from @${data.sender}: ${data.text}`
+      : `📢 #${data.roomName} (${data.sender}): ${data.text}`;
+    showToast(previewMsg.length > 70 ? previewMsg.substring(0, 67) + '…' : previewMsg, 'info');
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        const notifTitle = data.isDM ? `Direct Message: @${data.sender}` : `#${data.roomName} • ${data.sender}`;
+        const n = new Notification(notifTitle, {
+          body: data.text || 'Sent a new message'
+        });
+        n.onclick = () => {
+          window.focus();
+          if (data.isDM) {
+            openDirectMessage(data.sender);
+          } else {
+            socket.emit('request_join_room', { roomId: data.roomId, password: '' });
+          }
+        };
+      } catch (e) {}
+    }
+  });
+
+  const requestNotificationPermission = () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { Notification.requestPermission(); } catch (e) {}
+    }
+  };
+  document.addEventListener('click', () => requestNotificationPermission(), { once: true });
+
   // ─── Helper Functions for Badges, Links, DMs, Search & Pins ──────────────
   const renderUserBadgeHTML = (user) => {
     if (!user) return '';
@@ -821,10 +872,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const li = document.createElement('li');
       const dmRoomId = 'dm_' + [currentUser.username, dmUser].sort().join('__').toLowerCase().replace(/[^a-z0-9_]/g, '_');
       const isActive = currentRoom && currentRoom.id === dmRoomId;
+      const unread = unreadCounts[dmRoomId] || 0;
       li.className = 'channel-item' + (isActive ? ' active' : '');
       li.innerHTML = `
         <span class="channel-icon">💬</span>
         <span class="channel-name">@${escapeHTML(dmUser)}</span>
+        ${unread > 0 ? `<span class="unread-pill">${unread > 99 ? '99+' : unread}</span>` : ''}
       `;
       li.addEventListener('click', () => {
         openDirectMessage(dmUser);
@@ -1038,7 +1091,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const renderChannelsList = rooms => {
     if(!elChannelList) return; elChannelList.innerHTML='';
-    rooms.forEach(r=>{ const li=document.createElement('li'); li.className='channel-item'+(currentRoom&&r.id===currentRoom.id?' active':''); li.innerHTML='<span class="channel-icon">'+(r.icon||'💬')+'</span><span class="channel-name">#'+r.name+'</span>'+(r.hasPassword?'<span style="font-size:11px;">🔒</span>':''); li.addEventListener('click',()=>{ if(currentRoom&&r.id===currentRoom.id) return; if(r.hasPassword) handleJoinRoomClick(r); else socket.emit('request_join_room',{roomId:r.id,password:''}); }); elChannelList.appendChild(li); });
+    rooms.forEach(r=>{ 
+      const li=document.createElement('li'); 
+      const isActive = currentRoom && r.id === currentRoom.id;
+      const unread = unreadCounts[r.id] || 0;
+      li.className='channel-item' + (isActive ? ' active' : ''); 
+      li.innerHTML='<span class="channel-icon">'+(r.icon||'💬')+'</span><span class="channel-name">#'+escapeHTML(r.name)+'</span>'+(r.hasPassword?'<span style="font-size:11px;">🔒</span>':'') + (unread > 0 ? `<span class="unread-pill">${unread > 99 ? '99+' : unread}</span>` : ''); 
+      li.addEventListener('click',()=>{ if(currentRoom&&r.id===currentRoom.id) return; if(r.hasPassword) handleJoinRoomClick(r); else socket.emit('request_join_room',{roomId:r.id,password:''}); }); 
+      elChannelList.appendChild(li); 
+    });
     renderDMList();
   };
 
@@ -1131,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const actionsBar = '<div class="message-actions-bar">' +
       '<button class="message-action-btn reply" onclick="window.setReplyMessage(\''+msg.id+'\')" title="Reply">↩️</button>' +
       '<button class="message-action-btn pin" onclick="window.pinMessage(\''+msg.id+'\')" title="Pin message">📌</button>' +
-      '<button class="message-action-btn react" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\')" title="React">➕</button>' +
+      '<button class="message-action-btn react" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\', event)" title="React">➕</button>' +
       (canEdit ? '<button class="message-action-btn edit" onclick="window.startEditMessage(\''+msg.id+'\')" title="Edit message">✏️</button>' : '') +
       (canDelete ? '<button class="message-action-btn delete" onclick="window.deleteMessage(\''+msg.id+'\')" title="Delete message">🗑️</button>' : '') +
       '</div>';
@@ -1227,8 +1288,61 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  window.toggleReaction=(mid,rid,emoji)=>socket.emit('toggle_reaction',{messageId:mid,roomId:rid,emoji});
-  window.toggleEmojiPopForMessage=mid=>{ const e=['❤️','🔥','👍','😂','🚀','🎉']; socket.emit('toggle_reaction',{messageId:mid,roomId:currentRoom?.id,emoji:e[Math.floor(Math.random()*e.length)]}); };
+  // ─── Floating Reaction Picker & Reaction Toggle ──────────────────────────
+  let activeReactionTargetMessageId = null;
+  const reactionPicker = document.getElementById('message-reaction-picker');
+
+  window.toggleReaction = (mid, rid, emoji) => {
+    socket.emit('toggle_reaction', { messageId: mid, roomId: rid || currentRoom?.id, emoji });
+  };
+
+  window.toggleEmojiPopForMessage = (mid, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!reactionPicker) return;
+
+    if (reactionPicker.style.display !== 'none' && activeReactionTargetMessageId === mid) {
+      reactionPicker.style.display = 'none';
+      activeReactionTargetMessageId = null;
+      return;
+    }
+
+    activeReactionTargetMessageId = mid;
+    const btn = e?.currentTarget || e?.target;
+    if (btn && btn.getBoundingClientRect) {
+      const rect = btn.getBoundingClientRect();
+      const pickerHeight = 44;
+      const topPos = (rect.top - pickerHeight - 8 > 10)
+        ? (rect.top - pickerHeight - 6 + window.scrollY)
+        : (rect.bottom + 8 + window.scrollY);
+      const leftPos = Math.max(12, Math.min(window.innerWidth - 320, rect.left - 100 + window.scrollX));
+      reactionPicker.style.top = `${topPos}px`;
+      reactionPicker.style.left = `${leftPos}px`;
+    }
+    reactionPicker.style.display = 'flex';
+  };
+
+  document.querySelectorAll('.reaction-emoji-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const emoji = btn.getAttribute('data-emoji');
+      if (activeReactionTargetMessageId && currentRoom && emoji) {
+        socket.emit('toggle_reaction', {
+          roomId: currentRoom.id,
+          messageId: activeReactionTargetMessageId,
+          emoji: emoji
+        });
+      }
+      if (reactionPicker) reactionPicker.style.display = 'none';
+      activeReactionTargetMessageId = null;
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (reactionPicker && !e.target.closest('#message-reaction-picker') && !e.target.closest('.message-action-btn.react')) {
+      reactionPicker.style.display = 'none';
+      activeReactionTargetMessageId = null;
+    }
+  });
 
   // --- WhatsApp-Style Reply Handlers ---
   const clearReply = () => {

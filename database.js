@@ -178,6 +178,7 @@ function createTables() {
     db.run(`ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN reply_to TEXT`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN seen_by TEXT`, () => {});
+    db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT`, () => {});
     db.run(`ALTER TABLE rooms ADD COLUMN pinned_message_id TEXT`, () => {});
 
     // User Extensions Table
@@ -467,6 +468,7 @@ const DatabaseAPI = {
             codeSnippet: r.code_snippet ? (typeof r.code_snippet === 'string' ? JSON.parse(r.code_snippet) : r.code_snippet) : null,
             replyTo: r.reply_to ? (typeof r.reply_to === 'string' ? JSON.parse(r.reply_to) : r.reply_to) : null,
             seenBy: r.seen_by ? (typeof r.seen_by === 'string' ? JSON.parse(r.seen_by) : r.seen_by) : [],
+            reactions: r.reactions ? (typeof r.reactions === 'string' ? JSON.parse(r.reactions) : r.reactions) : {},
             user: { username: r.username, avatar: r.user_avatar }
           }));
           resolve(parsed);
@@ -487,7 +489,7 @@ const DatabaseAPI = {
         const avatar = msg.user ? (msg.user.avatar || '⚡') : '🤖';
 
         db.run(
-          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited, reply_to, seen_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited, reply_to, seen_by, reactions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             msg.id,
             msg.roomId,
@@ -499,7 +501,8 @@ const DatabaseAPI = {
             msg.timestamp,
             msg.isEdited ? 1 : 0,
             JSON.stringify(msg.replyTo || null),
-            JSON.stringify(msg.seenBy || [username])
+            JSON.stringify(msg.seenBy || [username]),
+            JSON.stringify(msg.reactions || {})
           ],
           () => resolve(msg)
         );
@@ -542,6 +545,23 @@ const DatabaseAPI = {
 
       if (!useJsonFallback && db) {
         db.run('DELETE FROM messages WHERE id = ?', [messageId], () => resolve(true));
+      } else {
+        resolve(true);
+      }
+    });
+  },
+
+  updateMessageReactions: (roomId, messageId, reactions) => {
+    return new Promise((resolve) => {
+      if (jsonStore.messages[roomId]) {
+        const found = jsonStore.messages[roomId].find(m => m.id === messageId);
+        if (found) {
+          found.reactions = reactions;
+          saveJsonFallback();
+        }
+      }
+      if (!useJsonFallback && db) {
+        db.run('UPDATE messages SET reactions = ? WHERE id = ?', [JSON.stringify(reactions || {}), messageId], () => resolve(true));
       } else {
         resolve(true);
       }
