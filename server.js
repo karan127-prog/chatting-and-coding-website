@@ -6,6 +6,7 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
 const { exec } = require('child_process');
+const crypto = require('crypto');
 const DatabaseAPI = require('./database');
 
 const app = express();
@@ -580,6 +581,8 @@ function splitPrintArgs(str) {
 const roomsMemory = {};
 const pendingRequests = new Map();
 const activeUsers = new Map();
+// Single active session per account
+const activeSessions = new Map();
 
 const getPublicRooms = async () => {
   const dbRooms = await DatabaseAPI.getAllRooms();
@@ -641,29 +644,165 @@ app.post('/api/signup', async (req, res) => {
   }
   try {
     const user = await DatabaseAPI.createUser(username, password);
-    res.json({ token: user.id, username: user.username, isAdmin: false });
+    const newSessionId = crypto.randomUUID ? crypto.randomUUID() : ('sess-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+    activeSessions.set(uLower, {
+      sessionId: newSessionId,
+      userId: user.id,
+      username: user.username,
+      socketId: null,
+      pendingUntil: Date.now() + 15000,
+      loggedInAt: Date.now(),
+      disconnectTimer: null
+    });
+    res.json({ token: user.id, sessionId: newSessionId, username: user.username, isAdmin: false });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, sessionId: clientSessionId } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   try {
     const user = await DatabaseAPI.authenticateUser(username, password);
-    res.json({ token: user.id, username: user.username, isAdmin: !!user.isAdmin });
+    const normUser = user.username.trim().toLowerCase();
+
+    // Check if account is already logged in on another device
+    const existingSession = activeSessions.get(normUser);
+    if (existingSession) {
+      const existingSocket = existingSession.socketId ? io.sockets.sockets.get(existingSession.socketId) : null;
+      const isSocketConnected = existingSocket && existingSocket.connected;
+      const isPendingConnect = existingSession.pendingUntil && existingSession.pendingUntil > Date.now();
+      const hasActiveGrace = !!existingSession.disconnectTimer;
+
+      if (isSocketConnected || isPendingConnect || hasActiveGrace) {
+        // If client is re-authenticating from the same active session on this device, allow it
+        if (clientSessionId && clientSessionId === existingSession.sessionId) {
+          // Same device re-authenticating
+        } else {
+          return res.status(403).json({
+            error: 'This account is already logged in on another device.'
+          });
+        }
+      }
+    }
+
+    const newSessionId = crypto.randomUUID ? crypto.randomUUID() : ('sess-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+    if (existingSession && existingSession.disconnectTimer) {
+      clearTimeout(existingSession.disconnectTimer);
+    }
+
+    activeSessions.set(normUser, {
+      sessionId: newSessionId,
+      userId: user.id,
+      username: user.username,
+      socketId: null,
+      pendingUntil: Date.now() + 15000,
+      loggedInAt: Date.now(),
+      disconnectTimer: null
+    });
+
+    res.json({ 
+      token: user.id, 
+      sessionId: newSessionId, 
+      username: user.username, 
+      isAdmin: !!user.isAdmin 
+    });
   } catch (err) {
     res.status(401).json({ error: err.message });
   }
 });
 
+app.post('/api/logout', (req, res) => {
+  const { username, sessionId } = req.body;
+  if (username) {
+    const normUser = username.trim().toLowerCase();
+    const session = activeSessions.get(normUser);
+    if (session && (!sessionId || session.sessionId === sessionId)) {
+      if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+      activeSessions.delete(normUser);
+      console.log(`[Session] Explicit logout for ${username}`);
+    }
+  }
+  res.json({ success: true });
+});
+
 io.on('connection', (socket) => {
   console.log(`[Socket] Connected: ${socket.id}`);
 
+  // Register or re-verify active session
+  socket.on('register_user', (userData) => {
+    if (!userData || !userData.username) return;
+    const normUser = userData.username.trim().toLowerCase();
+    const session = activeSessions.get(normUser);
+
+    if (session) {
+      if (userData.sessionId && session.sessionId !== userData.sessionId) {
+        const existingSocket = session.socketId ? io.sockets.sockets.get(session.socketId) : null;
+        if (existingSocket && existingSocket.connected && existingSocket.id !== socket.id) {
+          return socket.emit('auth_error', {
+            message: 'This account is already logged in on another device.'
+          });
+        }
+      }
+      if (session.disconnectTimer) {
+        clearTimeout(session.disconnectTimer);
+        session.disconnectTimer = null;
+      }
+      session.socketId = socket.id;
+      session.pendingUntil = null;
+    } else if (userData.token) {
+      const sid = userData.sessionId || (crypto.randomUUID ? crypto.randomUUID() : ('sess-' + Date.now()));
+      activeSessions.set(normUser, {
+        sessionId: sid,
+        userId: userData.token,
+        username: userData.username,
+        socketId: socket.id,
+        pendingUntil: null,
+        loggedInAt: Date.now(),
+        disconnectTimer: null
+      });
+      socket.emit('session_synced', { sessionId: sid });
+    }
+  });
+
   socket.on('user_join', async (userData) => {
+    const normUser = (userData.username || '').trim().toLowerCase();
+    const session = activeSessions.get(normUser);
+
+    if (session) {
+      if (userData.sessionId && session.sessionId !== userData.sessionId) {
+        const existingSocket = session.socketId ? io.sockets.sockets.get(session.socketId) : null;
+        if (existingSocket && existingSocket.connected && existingSocket.id !== socket.id) {
+          return socket.emit('auth_error', {
+            message: 'This account is already logged in on another device.'
+          });
+        }
+      }
+      if (session.disconnectTimer) {
+        clearTimeout(session.disconnectTimer);
+        session.disconnectTimer = null;
+      }
+      session.socketId = socket.id;
+      session.pendingUntil = null;
+    } else if (userData.token && normUser) {
+      const sid = userData.sessionId || (crypto.randomUUID ? crypto.randomUUID() : ('sess-' + Date.now()));
+      activeSessions.set(normUser, {
+        sessionId: sid,
+        userId: userData.token,
+        username: userData.username,
+        socketId: socket.id,
+        pendingUntil: null,
+        loggedInAt: Date.now(),
+        disconnectTimer: null
+      });
+      socket.emit('session_synced', { sessionId: sid });
+    }
+
     const user = {
       id: socket.id,
+      userId: userData.token || null,
+      sessionId: userData.sessionId || (session ? session.sessionId : null),
       username: userData.username || `User_${socket.id.substring(0, 4)}`,
       avatar: userData.avatar || '⚡',
       status: userData.status || 'online',
@@ -1105,9 +1244,37 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('user_logout', () => {
+    const user = activeUsers.get(socket.id);
+    if (user) {
+      const normUser = (user.username || '').trim().toLowerCase();
+      const session = activeSessions.get(normUser);
+      if (session) {
+        if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+        activeSessions.delete(normUser);
+      }
+    }
+  });
+
   socket.on('disconnect', async () => {
     const user = activeUsers.get(socket.id);
     if (user) {
+      // Single session tracking update
+      const normUser = (user.username || '').trim().toLowerCase();
+      const session = activeSessions.get(normUser);
+      if (session && session.socketId === socket.id) {
+        session.socketId = null;
+        if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+        // Allow a 6-second grace period for quick page reloads
+        session.disconnectTimer = setTimeout(() => {
+          const current = activeSessions.get(normUser);
+          if (current && !current.socketId) {
+            activeSessions.delete(normUser);
+            console.log(`[Session] Released session for ${user.username} (disconnected)`);
+          }
+        }, 6000);
+      }
+
       // Notify rooms that user left the call (in case they drop unexpectedly)
       Object.keys(roomsMemory).forEach((rid) => {
         io.to(rid).emit('user_left_call', { socketId: socket.id });

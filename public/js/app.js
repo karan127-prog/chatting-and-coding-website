@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentUser = {
     username: '',
     token: '',
+    sessionId: '',
     isAdmin: false,
     avatar: ['🦊','🐼','🦁','🐸','🐵','🦄','🐰','🐶'][Math.floor(Math.random()*8)],
     status: 'online',
@@ -61,9 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = JSON.parse(storedUser);
       currentUser.username = data.username;
       currentUser.token = data.token;
+      currentUser.sessionId = data.sessionId || '';
       currentUser.isAdmin = !!data.isAdmin || (data.username && (data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin'));
       authView.style.display = 'none';
       socket.emit('register_user', currentUser);
+      socket.emit('user_join', currentUser);
       socket._registered = true;
     } catch (e) {}
   }
@@ -115,17 +118,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(`/api/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ 
+          username, 
+          password,
+          sessionId: currentUser.sessionId || ''
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Authentication failed');
 
       currentUser.username = data.username;
       currentUser.token = data.token;
+      currentUser.sessionId = data.sessionId || '';
       currentUser.isAdmin = !!data.isAdmin || data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin';
       localStorage.setItem('pulsechat_user', JSON.stringify({
         username: data.username,
         token: data.token,
+        sessionId: currentUser.sessionId,
         isAdmin: currentUser.isAdmin
       }));
       
@@ -547,6 +556,44 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('kicked_from_room', ({message})=>{ currentRoom=null; isHostOfRoom=false; showLobbyView(); showToast(message,'error'); });
   socket.on('room_members_updated', members=>renderRoomMembers(members||[]));
   socket.on('rooms_updated', rooms=>{ activeRoomsList=rooms; renderChannelsList(rooms); fetchAndRenderLobbyRooms(); const s=document.getElementById('stat-active-rooms');if(s) s.innerText=rooms.length; });
+  socket.on('connect', () => {
+    if (currentUser.username) {
+      socket.emit('register_user', currentUser);
+      socket.emit('user_join', currentUser);
+    }
+  });
+
+  socket.on('session_synced', ({ sessionId }) => {
+    if (sessionId) {
+      currentUser.sessionId = sessionId;
+      const stored = localStorage.getItem('pulsechat_user');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          parsed.sessionId = sessionId;
+          localStorage.setItem('pulsechat_user', JSON.stringify(parsed));
+        } catch (e) {}
+      }
+    }
+  });
+
+  socket.on('auth_error', ({ message }) => {
+    localStorage.removeItem('pulsechat_user');
+    currentUser.username = '';
+    currentUser.token = '';
+    currentUser.sessionId = '';
+    currentUser.isAdmin = false;
+    updateAuthUI();
+    showToast(message, 'error');
+    if (authError) {
+      authError.textContent = message;
+      authError.style.display = 'block';
+    }
+    if (authView) {
+      authView.style.display = 'flex';
+    }
+  });
+
   socket.on('force_logout', data => {
     if (currentUser.token === data.userId) {
       alert("Your account has been deleted by an administrator.");
@@ -810,10 +857,21 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Logout / Switch Account
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      if (currentUser.username) {
+        await fetch('/api/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: currentUser.username, sessionId: currentUser.sessionId })
+        });
+        socket.emit('user_logout');
+      }
+    } catch (e) {}
     localStorage.removeItem('pulsechat_user');
     currentUser.username = '';
     currentUser.token = '';
+    currentUser.sessionId = '';
     currentUser.isAdmin = false;
     window.location.reload();
   };
@@ -953,11 +1011,22 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Profile Menu: Switch Account
-  const handleSwitchAccount = () => {
+  const handleSwitchAccount = async () => {
     closeProfileMenu();
+    try {
+      if (currentUser.username) {
+        await fetch('/api/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: currentUser.username, sessionId: currentUser.sessionId })
+        });
+        socket.emit('user_logout');
+      }
+    } catch (e) {}
     localStorage.removeItem('pulsechat_user');
     currentUser.username = '';
     currentUser.token = '';
+    currentUser.sessionId = '';
     currentUser.isAdmin = false;
     updateAuthUI();
     const authView = document.getElementById('auth-view');
