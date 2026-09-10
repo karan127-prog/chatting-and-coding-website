@@ -255,6 +255,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // View management
   const showLobbyView = () => {
+    if (currentRoom) {
+      socket.emit('leave_room', { roomId: currentRoom.id });
+      currentRoom = null;
+      isHostOfRoom = false;
+    }
     elLobbyView.style.display = 'block';
     if (elSidebar)    elSidebar.style.display    = 'none';
     if (elMainView)   elMainView.style.display   = 'none';
@@ -525,7 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('room_switched', ({room,messages,codeWorkspace,members}) => {
     closeAllModals(); currentRoom=room; isHostOfRoom=!!room.isHost; hideLobbyView();
     if(elRoomIcon)  elRoomIcon.innerText =(room.icon||'💬');
-    if(elRoomTitle) elRoomTitle.innerText='#'+room.name+(room.isHost?'  👑':'');
+    if(elRoomTitle) elRoomTitle.innerText='#'+room.name+(isHostOfRoom ? '  👑 (Host)' : (room.hostUsername ? `  [Host: ${room.hostUsername}]` : ''));
     if(elRoomDesc)  elRoomDesc.innerText =(room.description||'');
     renderChannelsList(activeRoomsList); renderMessages(messages||[]); renderRoomMembers(members||[]);
     if(codeWorkspace) codeStudio.loadWorkspace(codeWorkspace,room.id);

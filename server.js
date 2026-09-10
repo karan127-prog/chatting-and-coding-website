@@ -588,14 +588,13 @@ const getPublicRooms = async () => {
   const dbRooms = await DatabaseAPI.getAllRooms();
   return dbRooms.map((r) => {
     const roomSockets = io.sockets.adapter.rooms.get(r.id);
-    const hostSid = roomsMemory[r.id]?.hostSocketId;
     return {
       id: r.id,
       name: r.name,
       description: r.description,
       icon: r.icon || '💬',
       hasPassword: !!r.password,
-      hostUsername: hostSid ? activeUsers.get(hostSid)?.username || r.host_username : r.host_username,
+      hostUsername: r.host_username || 'System',
       tags: r.tags ? r.tags.split(',') : ['code'],
       language: r.language || 'python',
       activeMembersCount: roomSockets ? roomSockets.size : 0
@@ -900,17 +899,24 @@ io.on('connection', (socket) => {
       return admitUserToRoom(socket, targetRoom);
     }
 
-    if (!roomsMemory[roomId]) {
-      roomsMemory[roomId] = { hostSocketId: socket.id };
+    const hostUser = (targetRoom.host_username || '').toLowerCase();
+    const isUserTheHost = !!(user && hostUser && user.username.toLowerCase() === hostUser);
+
+    // Room creator always enters immediately as host
+    if (isUserTheHost) {
+      if (!roomsMemory[roomId]) roomsMemory[roomId] = {};
+      roomsMemory[roomId].hostSocketId = socket.id;
+      return admitUserToRoom(socket, targetRoom);
     }
 
-    // Password Check
+    // Password Check for non-hosts
     if (targetRoom.password && targetRoom.password !== password) {
       return socket.emit('join_error', { message: 'Incorrect Room Password!' });
     }
 
-    const hostSid = roomsMemory[roomId].hostSocketId;
-    const hostActive = hostSid && activeUsers.has(hostSid) && hostSid !== socket.id;
+    const hostSid = roomsMemory[roomId]?.hostSocketId;
+    const roomSockets = io.sockets.adapter.rooms.get(roomId);
+    const hostActive = !!(targetRoom.password && hostSid && activeUsers.has(hostSid) && hostSid !== socket.id && roomSockets && roomSockets.has(hostSid));
 
     if (hostActive) {
       if (!pendingRequests.has(roomId)) {
@@ -930,20 +936,19 @@ io.on('connection', (socket) => {
         requesterSocketId: socket.id
       });
     } else {
-      if (!roomsMemory[roomId].hostSocketId) {
-        roomsMemory[roomId].hostSocketId = socket.id;
-      }
+      // Host is offline or away; admitted directly without giving them host permissions
       admitUserToRoom(socket, targetRoom);
     }
   });
 
   socket.on('approve_join_request', async ({ roomId, requesterSocketId }) => {
-    const mem = roomsMemory[roomId];
-    if (!mem || mem.hostSocketId !== socket.id) return;
-
     const allDbRooms = await DatabaseAPI.getAllRooms();
     const targetRoom = allDbRooms.find(r => r.id === roomId);
     if (!targetRoom) return;
+
+    const user = activeUsers.get(socket.id);
+    const isHost = user && targetRoom.host_username && user.username.toLowerCase() === targetRoom.host_username.toLowerCase();
+    if (!isHost) return;
 
     const requesterSocket = io.sockets.sockets.get(requesterSocketId);
     if (requesterSocket) {
@@ -954,9 +959,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('deny_join_request', ({ roomId, requesterSocketId }) => {
-    const mem = roomsMemory[roomId];
-    if (!mem || mem.hostSocketId !== socket.id) return;
+  socket.on('deny_join_request', async ({ roomId, requesterSocketId }) => {
+    const allDbRooms = await DatabaseAPI.getAllRooms();
+    const targetRoom = allDbRooms.find(r => r.id === roomId);
+    if (!targetRoom) return;
+
+    const user = activeUsers.get(socket.id);
+    const isHost = user && targetRoom.host_username && user.username.toLowerCase() === targetRoom.host_username.toLowerCase();
+    if (!isHost) return;
 
     const requesterSocket = io.sockets.sockets.get(requesterSocketId);
     if (requesterSocket) {
@@ -968,11 +978,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('kick_member', async ({ roomId, memberSocketId }) => {
-    const mem = roomsMemory[roomId];
-    if (!mem || mem.hostSocketId !== socket.id) return;
-
     const allDbRooms = await DatabaseAPI.getAllRooms();
     const targetRoom = allDbRooms.find(r => r.id === roomId);
+    if (!targetRoom) return;
+
+    const user = activeUsers.get(socket.id);
+    const isHost = user && targetRoom.host_username && user.username.toLowerCase() === targetRoom.host_username.toLowerCase();
+    if (!isHost) return;
 
     const targetUser = activeUsers.get(memberSocketId);
     const targetSocket = io.sockets.sockets.get(memberSocketId);
@@ -981,8 +993,8 @@ io.on('connection', (socket) => {
       targetSocket.leave(roomId);
 
       targetSocket.emit('kicked_from_room', {
-        roomName: targetRoom ? targetRoom.name : roomId,
-        message: `You were kicked from #${targetRoom ? targetRoom.name : roomId} by the Host.`
+        roomName: targetRoom.name || roomId,
+        message: `You were kicked from #${targetRoom.name || roomId} by the Host.`
       });
 
       const sysMsg = {
@@ -994,48 +1006,43 @@ io.on('connection', (socket) => {
       };
       await DatabaseAPI.saveMessage(sysMsg);
       io.to(roomId).emit('message_received', sysMsg);
-      io.to(roomId).emit('room_members_updated', getRoomMembers(roomId));
+      const members = await getRoomMembers(roomId, targetRoom);
+      io.to(roomId).emit('room_members_updated', members);
     }
   });
 
-  // Create Protected Room via Socket
-  socket.on('create_room', async ({ name, password, description, icon, tags, language }) => {
-    const user = activeUsers.get(socket.id);
-    const roomId = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-
-    const newRoomData = {
-      id: roomId,
-      name,
-      description: description || 'Custom room',
-      icon: icon || '🔒',
-      password: password || '',
-      host_username: user ? user.username : 'Anonymous',
-      tags: tags || 'custom,code',
-      language: language || 'python'
-    };
-
-    const savedRoom = await DatabaseAPI.saveRoom(newRoomData);
-    roomsMemory[roomId] = { hostSocketId: socket.id };
-
+  socket.on('leave_room', async ({ roomId }) => {
+    socket.leave(roomId);
+    if (roomsMemory[roomId] && roomsMemory[roomId].hostSocketId === socket.id) {
+      roomsMemory[roomId].hostSocketId = null;
+    }
+    const members = await getRoomMembers(roomId);
+    io.to(roomId).emit('room_members_updated', members);
     const roomsList = await getPublicRooms();
     io.emit('rooms_updated', roomsList);
-    admitUserToRoom(socket, savedRoom);
   });
 
-  function getRoomMembers(roomId) {
+  async function getRoomMembers(roomId, optionalRoom) {
     const roomSockets = io.sockets.adapter.rooms.get(roomId);
     if (!roomSockets) return [];
-    const hostSid = roomsMemory[roomId]?.hostSocketId;
+
+    let room = optionalRoom;
+    if (!room) {
+      const allDbRooms = await DatabaseAPI.getAllRooms();
+      room = allDbRooms.find(r => r.id === roomId);
+    }
+    const hostUser = room ? (room.host_username || '').toLowerCase() : '';
 
     return Array.from(roomSockets).map((sid) => {
       const u = activeUsers.get(sid);
+      const isHost = !!(u && hostUser && u.username.toLowerCase() === hostUser);
       return {
         id: sid,
         username: u ? u.username : 'User',
         avatar: u ? u.avatar : '⚡',
         status: u ? u.status : 'online',
         customStatus: u ? u.customStatus : '',
-        isHost: hostSid === sid
+        isHost
       };
     });
   }
@@ -1047,10 +1054,18 @@ io.on('connection', (socket) => {
 
     userSocket.join(targetRoom.id);
 
+    const user = activeUsers.get(userSocket.id);
+    const hostUser = (targetRoom.host_username || '').toLowerCase();
+    const isHost = !!(user && hostUser && user.username.toLowerCase() === hostUser);
+
+    if (isHost) {
+      if (!roomsMemory[targetRoom.id]) roomsMemory[targetRoom.id] = {};
+      roomsMemory[targetRoom.id].hostSocketId = userSocket.id;
+    }
+
     const roomMessagesList = await DatabaseAPI.getRoomMessages(targetRoom.id);
     const roomCodeWorkspace = await DatabaseAPI.getRoomCodeWorkspace(targetRoom.id);
-    const hostSid = roomsMemory[targetRoom.id]?.hostSocketId;
-    const isHost = hostSid === userSocket.id;
+    const membersList = await getRoomMembers(targetRoom.id, targetRoom);
 
     userSocket.emit('room_switched', {
       room: {
@@ -1061,16 +1076,16 @@ io.on('connection', (socket) => {
         hasPassword: !!targetRoom.password,
         tags: Array.isArray(targetRoom.tags) ? targetRoom.tags : (typeof targetRoom.tags === 'string' ? targetRoom.tags.split(',') : ['code']),
         language: targetRoom.language || 'python',
+        hostUsername: targetRoom.host_username || 'System',
         isHost
       },
       messages: roomMessagesList,
       codeWorkspace: roomCodeWorkspace,
-      members: getRoomMembers(targetRoom.id)
+      members: membersList
     });
 
-    io.to(targetRoom.id).emit('room_members_updated', getRoomMembers(targetRoom.id));
+    io.to(targetRoom.id).emit('room_members_updated', membersList);
 
-    const user = activeUsers.get(userSocket.id);
     const sysMsg = {
       id: 'sys-' + Date.now(),
       roomId: targetRoom.id,
@@ -1284,14 +1299,16 @@ io.on('connection', (socket) => {
       io.emit('user_status_change', { user, activeUsers: Array.from(activeUsers.values()) });
 
       Object.keys(roomsMemory).forEach((rid) => {
-        if (roomsMemory[rid].hostSocketId === socket.id) {
-          const roomSockets = io.sockets.adapter.rooms.get(rid);
-          if (roomSockets && roomSockets.size > 0) {
-            roomsMemory[rid].hostSocketId = Array.from(roomSockets)[0];
-          } else {
-            roomsMemory[rid].hostSocketId = null;
-          }
+        if (roomsMemory[rid] && roomsMemory[rid].hostSocketId === socket.id) {
+          // Host left the room. Keep host permanence (do NOT shift to another user!)
+          roomsMemory[rid].hostSocketId = null;
         }
+      });
+
+      // Update room members in all rooms the user was in
+      Object.keys(roomsMemory).forEach(async (rid) => {
+        const members = await getRoomMembers(rid);
+        io.to(rid).emit('room_members_updated', members);
       });
 
       const roomsList = await getPublicRooms();
