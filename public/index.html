@@ -189,6 +189,12 @@
         </div>
         <ul class="channel-list" id="channel-list"></ul>
 
+        <!-- Direct Messages (DMs) Section -->
+        <div class="section-label" style="margin-top:10px;">
+          Direct Messages
+        </div>
+        <ul class="channel-list" id="sidebar-dm-list"></ul>
+
         <!-- Online Members -->
         <div class="section-label" style="margin-top:10px;">
           Online · <span id="user-count">0</span>
@@ -230,6 +236,7 @@
         </div>
 
         <div class="header-actions">
+          <button class="btn-header-action" id="btn-toggle-chat-search" title="Search in Chat">🔍</button>
           <button class="btn-header-action btn-go-home" title="Go to Home">🏠 Home</button>
           <button class="btn-header-action primary" id="btn-start-call">
             📹 <span>Video Call</span>
@@ -244,6 +251,27 @@
           </button>
         </div>
       </header>
+
+      <!-- In-Chat Search Bar -->
+      <div class="chat-search-bar" id="chat-search-bar" style="display:none;">
+        <span style="font-size:0.85rem; color:var(--text-muted); margin-left:12px;">🔍</span>
+        <input type="text" id="chat-search-input" class="chat-search-input" placeholder="Search messages in room…" autocomplete="off">
+        <span class="chat-search-count" id="chat-search-count" style="display:none;">0 matches</span>
+        <button class="chat-search-nav-btn" id="chat-search-prev" title="Previous match">▲</button>
+        <button class="chat-search-nav-btn" id="chat-search-next" title="Next match">▼</button>
+        <button class="chat-search-nav-btn" id="chat-search-close" title="Close search">✕</button>
+      </div>
+
+      <!-- Pinned Message Banner -->
+      <div class="chat-pinned-banner" id="chat-pinned-banner" style="display:none;">
+        <span class="pinned-icon">📌</span>
+        <div class="pinned-content" id="chat-pinned-content">
+          <span class="pinned-author" id="chat-pinned-author">Pinned Message</span>:
+          <span class="pinned-text" id="chat-pinned-text">...</span>
+        </div>
+        <button class="btn-pinned-action" id="btn-jump-pinned" title="Jump to message">Jump</button>
+        <button class="btn-pinned-action btn-unpin" id="btn-unpin-msg" title="Unpin message">✕</button>
+      </div>
 
       <!-- Message Timeline -->
       <div class="chat-timeline" id="chat-timeline"></div>
@@ -349,11 +377,18 @@
     <!-- COLLABORATIVE WHITEBOARD VIEW                             -->
     <!-- ═════════════════════════════════════════════════════════ -->
     <main class="whiteboard-main" id="whiteboard-main-view" style="display:none; position:relative; flex:1; background:#0f172a;">
-      <div class="whiteboard-toolbar" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(30,41,59,0.95); padding:10px 20px; border-radius:30px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display:flex; gap:15px; align-items:center; border: 1px solid rgba(255,255,255,0.1);">
+      <div class="whiteboard-toolbar" style="position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(30,41,59,0.95); padding:8px 18px; border-radius:30px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display:flex; gap:10px; align-items:center; border: 1px solid rgba(255,255,255,0.1);">
         <button class="btn-header-action btn-go-home" title="Go to Home" style="border:none;">🏠</button>
         <div style="width:1px; height:20px; background:rgba(255,255,255,0.1);"></div>
-        <input type="color" id="wb-color" value="#38bdf8" title="Brush Color" style="cursor:pointer; width:30px; height:30px; border:none; border-radius:50%; overflow:hidden;">
-        <input type="range" id="wb-size" min="1" max="20" value="3" title="Brush Size" style="cursor:pointer; width:100px;">
+        <button class="wb-tool-btn active" data-tool="brush" title="Freehand Brush">✏️</button>
+        <button class="wb-tool-btn" data-tool="rect" title="Rectangle">⬜</button>
+        <button class="wb-tool-btn" data-tool="circle" title="Circle">⭕</button>
+        <button class="wb-tool-btn" data-tool="arrow" title="Arrow">➡️</button>
+        <button class="wb-tool-btn" data-tool="text" title="Text Note">🔤</button>
+        <button class="wb-tool-btn" data-tool="eraser" title="Eraser">🧽</button>
+        <div style="width:1px; height:20px; background:rgba(255,255,255,0.1);"></div>
+        <input type="color" id="wb-color" value="#38bdf8" title="Brush Color" style="cursor:pointer; width:28px; height:28px; border:none; border-radius:50%; overflow:hidden;">
+        <input type="range" id="wb-size" min="1" max="20" value="3" title="Brush Size" style="cursor:pointer; width:80px;">
         <button class="btn-header-action" id="wb-clear" title="Clear Board" style="background:rgba(255,0,0,0.2); color:#ff5f56; border:none;">🗑️ Clear</button>
       </div>
       <canvas id="whiteboard-canvas" style="cursor:crosshair; touch-action:none; display:block; width:100%; height:100%;"></canvas>
@@ -559,6 +594,7 @@
               <button class="studio-tab-btn active" data-tab="console">Console Output</button>
               <button class="studio-tab-btn" data-tab="stdin">Input (stdin)</button>
               <button class="studio-tab-btn" data-tab="linter">Problems (<span id="studio-problem-count">0</span>)</button>
+              <button class="studio-tab-btn" data-tab="preview">🌐 Web Playground</button>
               <button class="studio-tab-btn" data-tab="output">Output Logs</button>
               <button class="studio-tab-btn" data-tab="terminal">Terminal</button>
               <button style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.72rem;padding:4px 8px;" id="btn-studio-clear-console">Clear Output</button>
@@ -787,6 +823,18 @@
           <label class="form-label">Status Message</label>
           <input type="text" class="form-input" id="input-profile-status" placeholder="What are you working on?">
         </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Profile Badge</label>
+        <select class="form-input" id="input-profile-badge">
+          <option value="">(No badge)</option>
+          <option value="💻 Code Ninja">💻 Code Ninja</option>
+          <option value="🔥 7-Day Streak">🔥 7-Day Streak</option>
+          <option value="⚡ Power User">⚡ Power User</option>
+          <option value="🚀 10x Dev">🚀 10x Dev</option>
+          <option value="🧙 Wizard">🧙 Wizard</option>
+        </select>
       </div>
 
       <div class="modal-actions">

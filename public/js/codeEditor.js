@@ -67,6 +67,15 @@ class CollaborativeCodeStudio {
               cursorLine: pos.line + 1,
               cursorCol: pos.ch + 1
             });
+
+            // Live Web Playground: Debounced real-time preview update
+            if (this.previewDebounceTimer) clearTimeout(this.previewDebounceTimer);
+            this.previewDebounceTimer = setTimeout(() => {
+              const af = this.getActiveFile();
+              if (af && (af.name.endsWith('.html') || af.name.endsWith('.css') || af.name.endsWith('.js') || af.language === 'html')) {
+                this.updateHTMLPreview();
+              }
+            }, 300);
           }
         }
       });
@@ -112,6 +121,19 @@ class CollaborativeCodeStudio {
             cursorLine: pos.line + 1,
             cursorCol: pos.ch + 1
           });
+
+          // Multi-User Live Cursor & Selection Sync
+          const sel = cm.somethingSelected() ? {
+            anchor: cm.getCursor('anchor'),
+            head: cm.getCursor('head')
+          } : null;
+
+          this.socket.emit('code_cursor_activity', {
+            roomId: this.currentRoomId,
+            fileId: activeFile.id,
+            cursor: { line: pos.line, ch: pos.ch },
+            selection: sel
+          });
         }
       });
     }
@@ -125,6 +147,14 @@ class CollaborativeCodeStudio {
     this.tabsBar = document.getElementById('vscode-tabs-bar');
     this.activityButtons = document.querySelectorAll('.activity-btn');
     this.sidePanelSections = document.querySelectorAll('.panel-section');
+    this.remoteCursors = new Map();
+
+    // Listen to logs from Web Playground iframe
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'playground-log') {
+        this.appendConsoleLine(`[Web Preview] ${e.data.message}`, e.data.logType === 'error' ? 'error' : 'return');
+      }
+    });
 
     // Extension Engine Instance
     if (window.VSCodeExtensionEngine) {
@@ -357,12 +387,17 @@ builtins.input = custom_input
 
     // Split View Toggle
     document.getElementById('btn-toggle-split-view')?.addEventListener('click', () => {
-      if (this.previewFrame.style.display === 'none') {
-        this.previewFrame.style.display = 'block';
-        this.updateHTMLPreview();
-      } else {
-        this.previewFrame.style.display = 'none';
+      const editorMain = document.querySelector('.studio-editor-main');
+      if (!editorMain) return;
+      editorMain.classList.toggle('split-active');
+      const isSplit = editorMain.classList.contains('split-active');
+      if (this.previewFrame) {
+        this.previewFrame.style.display = isSplit ? 'block' : 'none';
       }
+      if (isSplit) {
+        this.updateHTMLPreview();
+      }
+      this.refreshEditor();
     });
 
     // ─── Search & Replace Engine ────────────────────────────────────────────────
@@ -663,6 +698,14 @@ builtins.input = custom_input
       }
     });
 
+    this.socket.on('code_cursor_activity_received', ({ fileId, user, cursor, selection, color }) => {
+      if (!user || user.id === this.socket.id) return;
+      const activeFile = this.getActiveFile();
+      if (activeFile && activeFile.id === fileId) {
+        this.renderRemoteCursor(user, cursor, selection, color);
+      }
+    });
+
     this.socket.on('code_file_created', ({ workspace, newFile }) => {
       this.workspace = workspace;
       this.renderFileTree();
@@ -676,6 +719,52 @@ builtins.input = custom_input
       this.renderTabsBar();
       this.loadActiveFile();
     });
+  }
+
+  renderRemoteCursor(user, cursor, selection, color = '#38bdf8') {
+    if (this.remoteCursors.has(user.id)) {
+      const prev = this.remoteCursors.get(user.id);
+      if (prev.bookmark) prev.bookmark.clear();
+      if (prev.mark) prev.mark.clear();
+      if (prev.timer) clearTimeout(prev.timer);
+    }
+
+    if (this.editor && cursor) {
+      const cursorEl = document.createElement('div');
+      cursorEl.className = 'cm-remote-cursor';
+      cursorEl.style.borderLeftColor = color;
+
+      const flag = document.createElement('span');
+      flag.className = 'cm-remote-cursor-flag';
+      flag.style.backgroundColor = color;
+      flag.innerText = `${user.avatar || '⚡'} ${user.username || 'Coder'}`;
+      cursorEl.appendChild(flag);
+
+      const bookmark = this.editor.setBookmark({ line: cursor.line, ch: cursor.ch }, { widget: cursorEl, insertLeft: true });
+      let mark = null;
+      if (selection && selection.anchor && selection.head) {
+        mark = this.editor.markText(selection.anchor, selection.head, {
+          className: 'cm-remote-selection',
+          css: `background-color: ${color}33 !important;`
+        });
+      }
+
+      const timer = setTimeout(() => {
+        if (this.remoteCursors.has(user.id)) {
+          const itm = this.remoteCursors.get(user.id);
+          if (itm.bookmark) itm.bookmark.clear();
+          if (itm.mark) itm.mark.clear();
+          this.remoteCursors.delete(user.id);
+        }
+      }, 7000);
+
+      this.remoteCursors.set(user.id, { bookmark, mark, timer });
+    }
+
+    if (user && cursor) {
+      this.activeUserCursors.set(user.id, { ...user, cursorLine: cursor.line + 1, cursorCol: cursor.ch + 1, color });
+      this.renderUserCursors();
+    }
   }
 
   initDOMEvents() {
@@ -1305,22 +1394,68 @@ sys.stdin = io.StringIO(${JSON.stringify(stdinVal)})
 
   updateHTMLPreview() {
     if (!this.previewFrame) return;
-    const htmlFile = this.workspace.files.find((f) => f.name.endsWith('.html')) || this.getActiveFile();
-    const cssFile = this.workspace.files.find((f) => f.name.endsWith('.css'));
-    const jsFile = this.workspace.files.find((f) => f.name.endsWith('.js'));
+    const htmlFile = this.workspace.files.find((f) => f.name.endsWith('.html')) || (this.getActiveFile()?.name.endsWith('.html') ? this.getActiveFile() : null);
+    const cssFiles = this.workspace.files.filter((f) => f.name.endsWith('.css'));
+    const jsFiles = this.workspace.files.filter((f) => f.name.endsWith('.js'));
 
-    let fullHTML = htmlFile ? htmlFile.content : '';
-    if (cssFile && !fullHTML.includes('<style>')) {
-      fullHTML += `<style>${cssFile.content}</style>`;
-    }
-    if (jsFile && !fullHTML.includes('<script>')) {
-      fullHTML += `<script>${jsFile.content}</script>`;
+    let fullHTML = htmlFile ? htmlFile.content : `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>CodeCanvas Playground</title></head>
+<body style="font-family:sans-serif;padding:24px;color:#f8fafc;background:#0f172a;">
+  <h2 style="color:#38bdf8;margin-top:0;">🌐 CodeCanvas Live Web Playground</h2>
+  <p style="color:#94a3b8;font-size:0.95rem;">Real-time sandbox preview executing HTML, CSS, and JS files from your workspace.</p>
+  <div style="background:rgba(255,255,255,0.05);padding:16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);margin-top:16px;">
+    <strong>Quick Tip:</strong> Create <code>index.html</code>, <code>styles.css</code>, and <code>script.js</code> files to see live interactive rendering!
+  </div>
+</body>
+</html>`;
+
+    // Inject CSS files
+    cssFiles.forEach(css => {
+      if (fullHTML.includes('</head>')) {
+        fullHTML = fullHTML.replace('</head>', `<style>/* ${css.name} */\n${css.content}\n</style></head>`);
+      } else {
+        fullHTML = `<style>${css.content}</style>` + fullHTML;
+      }
+    });
+
+    // Inject Console Interceptor Script
+    const consoleInterceptor = `
+<script>
+(function() {
+  const sendLog = (type, args) => {
+    try {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      window.parent.postMessage({ type: 'playground-log', logType: type, message: msg }, '*');
+    } catch(e) {}
+  };
+  const _l = console.log, _w = console.warn, _e = console.error;
+  console.log = function(...args) { _l.apply(console, args); sendLog('log', args); };
+  console.warn = function(...args) { _w.apply(console, args); sendLog('warn', args); };
+  console.error = function(...args) { _e.apply(console, args); sendLog('error', args); };
+  window.onerror = function(msg, url, line) { sendLog('error', [msg + ' (line ' + line + ')']); };
+})();
+<\/script>`;
+
+    if (fullHTML.includes('</head>')) {
+      fullHTML = fullHTML.replace('</head>', `${consoleInterceptor}</head>`);
+    } else {
+      fullHTML = consoleInterceptor + fullHTML;
     }
 
-    const doc = this.previewFrame.contentDocument || this.previewFrame.contentWindow.document;
-    doc.open();
-    doc.write(fullHTML);
-    doc.close();
+    // Inject JS files safely
+    jsFiles.forEach(js => {
+      fullHTML += `\n<script>/* ${js.name} */\ntry {\n${js.content}\n} catch(err) { console.error(err.message); }\n<\/script>`;
+    });
+
+    try {
+      const doc = this.previewFrame.contentDocument || this.previewFrame.contentWindow.document;
+      doc.open();
+      doc.write(fullHTML);
+      doc.close();
+    } catch (e) {
+      console.warn('Playground update warning:', e);
+    }
   }
 }
 

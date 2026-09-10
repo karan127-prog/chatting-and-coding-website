@@ -807,6 +807,7 @@ io.on('connection', (socket) => {
         avatar: userData.avatar || '⚡',
         status: userData.status || 'online',
         customStatus: userData.customStatus || 'Active member',
+        badge: userData.badge || '',
         joinedAt: new Date().toISOString()
       };
 
@@ -1052,6 +1053,7 @@ io.on('connection', (socket) => {
         avatar: u ? u.avatar : '⚡',
         status: u ? u.status : 'online',
         customStatus: u ? u.customStatus : '',
+        badge: u ? (u.badge || '') : '',
         isHost
       };
     });
@@ -1091,7 +1093,8 @@ io.on('connection', (socket) => {
       },
       messages: roomMessagesList,
       codeWorkspace: roomCodeWorkspace,
-      members: membersList
+      members: membersList,
+      pinnedMessage: targetRoom.pinned_message_id ? (roomMessagesList.find(m => m.id === targetRoom.pinned_message_id) || null) : null
     });
 
     io.to(targetRoom.id).emit('room_members_updated', membersList);
@@ -1228,16 +1231,95 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('user_typing', { roomId, username: user.username, isTyping });
   });
 
-  socket.on('update_profile', ({ status, customStatus, avatar }) => {
+  socket.on('update_profile', async ({ status, customStatus, avatar, badge }) => {
     const user = activeUsers.get(socket.id);
     if (!user) return;
 
     if (status) user.status = status;
     if (customStatus !== undefined) user.customStatus = customStatus;
     if (avatar) user.avatar = avatar;
+    if (badge !== undefined) {
+      user.badge = badge;
+      await DatabaseAPI.updateUserBadge(user.username, badge);
+    }
 
     activeUsers.set(socket.id, user);
     io.emit('user_status_change', { user, activeUsers: Array.from(activeUsers.values()) });
+  });
+
+  // Pinned Message Events
+  socket.on('pin_message', async ({ roomId, messageId }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user || !roomId || !messageId) return;
+    await DatabaseAPI.pinRoomMessage(roomId, messageId);
+    const messages = await DatabaseAPI.getRoomMessages(roomId);
+    const pinnedMsg = messages.find(m => m.id === messageId) || null;
+    io.to(roomId).emit('pinned_message_updated', {
+      roomId,
+      pinnedMessage: pinnedMsg
+    });
+  });
+
+  socket.on('unpin_message', async ({ roomId }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user || !roomId) return;
+    await DatabaseAPI.unpinRoomMessage(roomId);
+    io.to(roomId).emit('pinned_message_updated', {
+      roomId,
+      pinnedMessage: null
+    });
+  });
+
+  // Read Receipts (Seen status)
+  socket.on('mark_seen', async ({ roomId, messageIds }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user || !roomId || !messageIds || !messageIds.length) return;
+    const updatedIds = await DatabaseAPI.markMessagesSeen(roomId, messageIds, user.username);
+    if (updatedIds.length > 0) {
+      io.to(roomId).emit('messages_seen', {
+        roomId,
+        messageIds: updatedIds,
+        seenBy: user.username
+      });
+    }
+  });
+
+  // Collaborative Code Studio Multi-User Cursors
+  socket.on('code_cursor_activity', ({ roomId, fileId, cursor, selection, color }) => {
+    const user = activeUsers.get(socket.id);
+    if (!user || !roomId) return;
+    socket.to(roomId).emit('code_cursor_activity_received', {
+      fileId,
+      user: { id: socket.id, username: user.username, avatar: user.avatar },
+      cursor,
+      selection,
+      color: color || '#38bdf8'
+    });
+  });
+
+  // Collaborative Whiteboard Events (Freehand, Shapes, Text & Clear)
+  socket.on('wb_draw', (data) => {
+    if (data && data.roomId) {
+      socket.to(data.roomId).emit('wb_draw_received', data);
+    }
+  });
+
+  socket.on('wb_draw_shape', (data) => {
+    if (data && data.roomId) {
+      socket.to(data.roomId).emit('wb_draw_shape_received', data);
+    }
+  });
+
+  socket.on('wb_draw_text', (data) => {
+    if (data && data.roomId) {
+      socket.to(data.roomId).emit('wb_draw_text_received', data);
+    }
+  });
+
+  socket.on('wb_clear', ({ roomId }) => {
+    if (roomId) {
+      socket.to(roomId).emit('wb_clear_received');
+    }
   });
 
   // WebRTC Mesh Call Signaling

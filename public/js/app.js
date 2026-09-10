@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     token: '',
     sessionId: '',
     isAdmin: false,
+    badge: '',
     avatar: ['🦊','🐼','🦁','🐸','🐵','🦄','🐰','🐶'][Math.floor(Math.random()*8)],
     status: 'online',
     customStatus: 'Coding live'
@@ -580,6 +581,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateUserProfileUI(); 
     updateAuthUI();
     renderChannelsList(activeRoomsList); 
+    renderDMList();
     renderActiveUsersList(data.activeUsers||[]);
     fetchAndRenderLobbyRooms();
     const ln=document.getElementById('lobby-username'); if(ln&&currentUser.username) ln.innerText=currentUser.username;
@@ -591,10 +593,11 @@ document.addEventListener('DOMContentLoaded', () => {
     closeAllModals(); currentRoom=room; isHostOfRoom=!!room.isHost; hideLobbyView();
     clearReply();
     closeEmojiPicker();
+    updatePinnedBanner(room.pinnedMessage);
     if(elRoomIcon)  elRoomIcon.innerText =(room.icon||'💬');
     if(elRoomTitle) elRoomTitle.innerText='#'+room.name+(isHostOfRoom ? '  👑 (Host)' : (room.hostUsername ? `  [Host: ${room.hostUsername}]` : ''));
     if(elRoomDesc)  elRoomDesc.innerText =(room.description||'');
-    renderChannelsList(activeRoomsList); renderMessages(messages||[]); renderRoomMembers(members||[]);
+    renderChannelsList(activeRoomsList); renderDMList(); renderMessages(messages||[]); renderRoomMembers(members||[]);
     if(codeWorkspace) codeStudio.loadWorkspace(codeWorkspace,room.id);
     
     // Switch view if first time entering room
@@ -604,6 +607,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.collaborativeWhiteboard) {
       window.collaborativeWhiteboard.setRoomId(currentRoom.id);
       window.collaborativeWhiteboard.clearBoard(false); // clear UI board safely
+    }
+
+    // Mark unseen messages from other members as seen
+    const unseenIds = (messages || [])
+      .filter(m => m.user && m.user.username !== currentUser.username && (!m.seenBy || !m.seenBy.includes(currentUser.username)))
+      .map(m => m.id);
+    if (unseenIds.length > 0) {
+      socket.emit('mark_seen', { roomId: room.id, messageIds: unseenIds });
     }
 
     showToast('Joined #'+room.name,'success');
@@ -671,7 +682,36 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => location.reload(), 1000);
     }
   });
-  socket.on('message_received', msg=>{ if(currentRoom&&msg.roomId===currentRoom.id){ appendSingleMessage(msg); scrollToBottom(); if(!msg.isSystem&&msg.user&&msg.user.id!==socket.id) playSoundEffect('message'); } });
+
+  socket.on('message_received', msg=>{ 
+    if(currentRoom&&msg.roomId===currentRoom.id){ 
+      appendSingleMessage(msg); 
+      scrollToBottom(); 
+      if(!msg.isSystem&&msg.user&&msg.user.id!==socket.id) {
+        playSoundEffect('message'); 
+        socket.emit('mark_seen', { roomId: currentRoom.id, messageIds: [msg.id] });
+      }
+    } 
+  });
+  socket.on('messages_seen', ({ roomId, messageIds, seenBy }) => {
+    if (currentRoom && roomId === currentRoom.id && messageIds) {
+      messageIds.forEach(mid => {
+        const tick = document.getElementById(`delivery-${mid}`);
+        if (tick) {
+          tick.classList.add('seen');
+          tick.innerText = '✓✓';
+        }
+      });
+    }
+  });
+  socket.on('pinned_message_updated', (pinnedMsg) => {
+    updatePinnedBanner(pinnedMsg);
+    if (pinnedMsg) {
+      showToast(`📌 Pinned message from ${pinnedMsg.user?.username || 'User'}`, 'info');
+    } else {
+      showToast('Message unpinned', 'info');
+    }
+  });
   socket.on('message_edited', ({ messageId, roomId, text, isEdited }) => {
     if (currentRoom && roomId === currentRoom.id) {
       const card = document.querySelector('[data-message-id="' + messageId + '"]');
@@ -714,6 +754,260 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('user_typing', ({roomId,username,isTyping})=>{ if(currentRoom&&roomId===currentRoom.id){if(elTypingBar) elTypingBar.style.visibility=isTyping?'visible':'hidden';if(isTyping&&elTypingText) elTypingText.innerText=username+' is typing…';} });
   socket.on('user_status_change', ({activeUsers})=>{ renderActiveUsersList(activeUsers); const s=document.getElementById('stat-active-users');if(s) s.innerText=activeUsers.length; });
 
+  // ─── Helper Functions for Badges, Links, DMs, Search & Pins ──────────────
+  const renderUserBadgeHTML = (user) => {
+    if (!user) return '';
+    let html = '';
+    const isMainAdmin = !!user.isAdmin || (user.username && (user.username.toLowerCase() === 'karan singh' || user.username.toLowerCase() === 'admin'));
+    if (user.isHost) {
+      html += '<span class="user-badge host">👑 Host</span>';
+    }
+    if (isMainAdmin) {
+      html += '<span class="user-badge admin">🛡️ Admin</span>';
+    }
+    if (user.badge && user.badge.trim() && !user.badge.includes('Admin') && !user.badge.includes('Host')) {
+      html += '<span class="user-badge custom">' + escapeHTML(user.badge.trim()) + '</span>';
+    }
+    return html;
+  };
+
+  const generateLinkPreviewHTML = (text) => {
+    if (!text) return '';
+    const urlMatch = text.match(/(https?:\/\/[^\s]+)/i);
+    if (!urlMatch) return '';
+    const url = urlMatch[0];
+    try {
+      const parsed = new URL(url);
+      const domain = parsed.hostname.replace(/^www\./, '');
+      let icon = '🔗';
+      if (domain.includes('github')) icon = '🐙';
+      else if (domain.includes('youtube') || domain.includes('youtu.be')) icon = '▶️';
+      else if (domain.includes('google')) icon = '🔍';
+      else if (domain.includes('twitter') || domain.includes('x.com')) icon = '🐦';
+      else if (domain.includes('wikipedia')) icon = '📖';
+
+      return `
+        <a href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" class="link-preview-card">
+          <div class="link-preview-icon">${icon}</div>
+          <div class="link-preview-info">
+            <div class="link-preview-domain">${escapeHTML(domain)}</div>
+            <div class="link-preview-title">${escapeHTML(parsed.pathname.length > 1 ? parsed.pathname : domain)}</div>
+          </div>
+          <div class="link-preview-arrow">↗</div>
+        </a>
+      `;
+    } catch(e) {
+      return '';
+    }
+  };
+
+  // ─── Direct Messages (DMs) Manager ────────────────────────────────────────
+  const dmList = document.getElementById('sidebar-dm-list');
+  const knownDMs = new Set(JSON.parse(localStorage.getItem('pulsechat_dms') || '[]'));
+
+  const saveKnownDMs = () => {
+    localStorage.setItem('pulsechat_dms', JSON.stringify(Array.from(knownDMs)));
+  };
+
+  const renderDMList = () => {
+    if (!dmList) return;
+    dmList.innerHTML = '';
+    if (knownDMs.size === 0) {
+      dmList.innerHTML = '<li style="padding:6px 12px; font-size:0.75rem; color:var(--text-dim);">No direct messages yet. Click an online user to chat!</li>';
+      return;
+    }
+
+    knownDMs.forEach(dmUser => {
+      const li = document.createElement('li');
+      const dmRoomId = 'dm_' + [currentUser.username, dmUser].sort().join('__').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      const isActive = currentRoom && currentRoom.id === dmRoomId;
+      li.className = 'channel-item' + (isActive ? ' active' : '');
+      li.innerHTML = `
+        <span class="channel-icon">💬</span>
+        <span class="channel-name">@${escapeHTML(dmUser)}</span>
+      `;
+      li.addEventListener('click', () => {
+        openDirectMessage(dmUser);
+      });
+      dmList.appendChild(li);
+    });
+  };
+
+  const openDirectMessage = (targetUsername) => {
+    if (!currentUser.username || !targetUsername || targetUsername === currentUser.username) return;
+    knownDMs.add(targetUsername);
+    saveKnownDMs();
+    renderDMList();
+
+    const dmRoomId = 'dm_' + [currentUser.username, targetUsername].sort().join('__').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    socket.emit('request_join_room', {
+      roomId: dmRoomId,
+      password: '',
+      name: `${currentUser.username} & ${targetUsername}`,
+      description: `Direct conversation with @${targetUsername}`
+    });
+  };
+
+  // ─── Pinned Message Manager ───────────────────────────────────────────────
+  let currentPinnedMessageId = null;
+
+  const updatePinnedBanner = (pinnedMsg) => {
+    const banner = document.getElementById('chat-pinned-banner');
+    const authorEl = document.getElementById('chat-pinned-author');
+    const textEl = document.getElementById('chat-pinned-text');
+    if (!banner) return;
+
+    if (pinnedMsg && pinnedMsg.id) {
+      currentPinnedMessageId = pinnedMsg.id;
+      if (authorEl) authorEl.innerText = pinnedMsg.user?.username || 'User';
+      if (textEl) {
+        const t = pinnedMsg.text || (pinnedMsg.attachment ? `[Attachment: ${pinnedMsg.attachment.filename}]` : '[Message]');
+        textEl.innerText = t.length > 70 ? t.substring(0, 70) + '…' : t;
+      }
+      banner.style.display = 'flex';
+    } else {
+      currentPinnedMessageId = null;
+      banner.style.display = 'none';
+    }
+  };
+
+  document.getElementById('btn-jump-pinned')?.addEventListener('click', () => {
+    if (currentPinnedMessageId) {
+      window.scrollToMessage(currentPinnedMessageId);
+    }
+  });
+
+  document.getElementById('btn-unpin-msg')?.addEventListener('click', () => {
+    if (currentRoom) {
+      socket.emit('unpin_message', { roomId: currentRoom.id });
+    }
+  });
+
+  window.pinMessage = (mid) => {
+    if (currentRoom) {
+      socket.emit('pin_message', { roomId: currentRoom.id, messageId: mid });
+    }
+  };
+
+  // ─── In-Chat Search Manager ───────────────────────────────────────────────
+  const searchBar = document.getElementById('chat-search-bar');
+  const searchInput = document.getElementById('chat-search-input');
+  const searchCount = document.getElementById('chat-search-count');
+  const searchPrevBtn = document.getElementById('chat-search-prev');
+  const searchNextBtn = document.getElementById('chat-search-next');
+  const searchCloseBtn = document.getElementById('chat-search-close');
+  const searchToggleBtn = document.getElementById('btn-toggle-chat-search');
+
+  let chatSearchMatches = [];
+  let currentSearchIdx = -1;
+
+  const clearChatSearchHighlights = () => {
+    if (!elTimeline) return;
+    const marks = elTimeline.querySelectorAll('.chat-search-match');
+    marks.forEach(m => {
+      const parent = m.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+      }
+    });
+  };
+
+  const performChatSearch = () => {
+    clearChatSearchHighlights();
+    chatSearchMatches = [];
+    currentSearchIdx = -1;
+
+    const q = searchInput?.value.trim().toLowerCase();
+    if (!q || !elTimeline) {
+      if (searchCount) searchCount.style.display = 'none';
+      return;
+    }
+
+    const messageCards = elTimeline.querySelectorAll('.message-card');
+    messageCards.forEach(card => {
+      const textSpan = card.querySelector('.message-text-content');
+      if (!textSpan) return;
+      const originalText = textSpan.innerText;
+      const lower = originalText.toLowerCase();
+
+      if (lower.includes(q)) {
+        let newHTML = '';
+        let lastIdx = 0;
+        let matchPos = lower.indexOf(q, lastIdx);
+
+        while (matchPos !== -1) {
+          newHTML += escapeHTML(originalText.substring(lastIdx, matchPos));
+          newHTML += `<mark class="chat-search-match">${escapeHTML(originalText.substring(matchPos, matchPos + q.length))}</mark>`;
+          lastIdx = matchPos + q.length;
+          matchPos = lower.indexOf(q, lastIdx);
+        }
+        newHTML += escapeHTML(originalText.substring(lastIdx));
+        textSpan.innerHTML = newHTML;
+
+        card.querySelectorAll('.chat-search-match').forEach(matchEl => {
+          chatSearchMatches.push({ card, el: matchEl });
+        });
+      }
+    });
+
+    if (searchCount) {
+      searchCount.style.display = 'inline-block';
+      searchCount.innerText = `${chatSearchMatches.length} match${chatSearchMatches.length !== 1 ? 'es' : ''}`;
+    }
+
+    if (chatSearchMatches.length > 0) {
+      jumpToChatMatch(0);
+    }
+  };
+
+  const jumpToChatMatch = (idx) => {
+    if (chatSearchMatches.length === 0) return;
+    if (idx < 0) idx = chatSearchMatches.length - 1;
+    if (idx >= chatSearchMatches.length) idx = 0;
+    currentSearchIdx = idx;
+
+    chatSearchMatches.forEach(m => m.el.classList.remove('current'));
+    const current = chatSearchMatches[currentSearchIdx];
+    current.el.classList.add('current');
+    current.card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    if (searchCount) {
+      searchCount.innerText = `${currentSearchIdx + 1} of ${chatSearchMatches.length}`;
+    }
+  };
+
+  searchToggleBtn?.addEventListener('click', () => {
+    if (!searchBar) return;
+    const isVis = searchBar.style.display !== 'none';
+    searchBar.style.display = isVis ? 'none' : 'flex';
+    if (!isVis) {
+      searchInput?.focus();
+      if (searchInput?.value) performChatSearch();
+    } else {
+      clearChatSearchHighlights();
+    }
+  });
+
+  searchInput?.addEventListener('input', performChatSearch);
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) jumpToChatMatch(currentSearchIdx - 1);
+      else jumpToChatMatch(currentSearchIdx + 1);
+    } else if (e.key === 'Escape') {
+      searchBar.style.display = 'none';
+      clearChatSearchHighlights();
+    }
+  });
+
+  searchPrevBtn?.addEventListener('click', () => jumpToChatMatch(currentSearchIdx - 1));
+  searchNextBtn?.addEventListener('click', () => jumpToChatMatch(currentSearchIdx + 1));
+  searchCloseBtn?.addEventListener('click', () => {
+    if (searchBar) searchBar.style.display = 'none';
+    clearChatSearchHighlights();
+  });
+
   // Renderers
   const updateUserProfileUI = () => {
     const avatar = currentUser.avatar || '⚡';
@@ -745,16 +1039,48 @@ document.addEventListener('DOMContentLoaded', () => {
   const renderChannelsList = rooms => {
     if(!elChannelList) return; elChannelList.innerHTML='';
     rooms.forEach(r=>{ const li=document.createElement('li'); li.className='channel-item'+(currentRoom&&r.id===currentRoom.id?' active':''); li.innerHTML='<span class="channel-icon">'+(r.icon||'💬')+'</span><span class="channel-name">#'+r.name+'</span>'+(r.hasPassword?'<span style="font-size:11px;">🔒</span>':''); li.addEventListener('click',()=>{ if(currentRoom&&r.id===currentRoom.id) return; if(r.hasPassword) handleJoinRoomClick(r); else socket.emit('request_join_room',{roomId:r.id,password:''}); }); elChannelList.appendChild(li); });
+    renderDMList();
   };
 
   const renderActiveUsersList = users => {
     if(!elUserList) return; elUserList.innerHTML=''; if(elUserCount) elUserCount.innerText=users.length;
-    users.forEach(u=>{ const li=document.createElement('li'); li.className='user-item'; li.innerHTML='<div class="user-avatar-container" style="width:32px;height:32px;"><div class="user-avatar" style="font-size:16px;">'+(u.avatar||'⚡')+'</div><div class="status-dot '+(u.status||'online')+'"></div></div><div style="min-width:0;flex:1;"><div class="user-name" style="font-size:0.85rem;">'+u.username+'</div><div class="user-status-text" style="font-size:0.7rem;">'+(u.customStatus||'Online')+'</div></div>'; elUserList.appendChild(li); });
+    users.forEach(u=>{ 
+      const li=document.createElement('li'); 
+      li.className='user-item'; 
+      li.style.cursor = 'pointer';
+      li.title = `Direct message @${u.username}`;
+      const badgeHTML = renderUserBadgeHTML(u);
+      li.innerHTML='<div class="user-avatar-container" style="width:32px;height:32px;"><div class="user-avatar" style="font-size:16px;">'+(u.avatar||'⚡')+'</div><div class="status-dot '+(u.status||'online')+'"></div></div><div style="min-width:0;flex:1;"><div class="user-name" style="font-size:0.85rem;">'+u.username+badgeHTML+'</div><div class="user-status-text" style="font-size:0.7rem;">'+(u.customStatus||'Online')+'</div></div>'; 
+      li.addEventListener('click', () => {
+        if (u.username !== currentUser.username) {
+          openDirectMessage(u.username);
+        }
+      });
+      elUserList.appendChild(li); 
+    });
   };
 
   const renderRoomMembers = members => {
     if(!elRoomMemberList) return; elRoomMemberList.innerHTML=''; if(elRoomMemberCount) elRoomMemberCount.innerText=members.length;
-    members.forEach(m=>{ const li=document.createElement('li'); li.className='user-item'; const isSelf=m.id===socket.id,canKick=isHostOfRoom&&!isSelf&&!m.isHost; li.innerHTML='<div class="user-avatar-container" style="width:28px;height:28px;"><div class="user-avatar" style="font-size:14px;">'+(m.avatar||'⚡')+'</div><div class="status-dot online"></div></div><div style="min-width:0;flex:1;"><div class="user-name" style="font-size:0.82rem;">'+m.username+(m.isHost?' <span style="font-size:10px;background:rgba(251,191,36,0.2);color:#fbbf24;padding:1px 5px;border-radius:4px;">👑</span>':'')+(isSelf?' <span style="font-size:10px;color:var(--text-muted);">(you)</span>':'')+'</div></div>'+(canKick?'<button class="btn-kick" data-mid="'+m.id+'">🚫</button>':''); if(canKick) li.querySelector('.btn-kick').addEventListener('click',e=>{e.stopPropagation();if(confirm('Kick '+m.username+'?')) socket.emit('kick_member',{roomId:currentRoom.id,memberSocketId:e.currentTarget.dataset.mid});}); elRoomMemberList.appendChild(li); });
+    members.forEach(m=>{ 
+      const li=document.createElement('li'); 
+      li.className='user-item'; 
+      const isSelf=m.id===socket.id,canKick=isHostOfRoom&&!isSelf&&!m.isHost; 
+      const isHost = m.isHost || (currentRoom && currentRoom.hostUsername === m.username);
+      const badgeHTML = renderUserBadgeHTML({ ...m, isHost });
+      li.innerHTML='<div class="user-avatar-container" style="width:28px;height:28px;"><div class="user-avatar" style="font-size:14px;">'+(m.avatar||'⚡')+'</div><div class="status-dot online"></div></div><div style="min-width:0;flex:1;"><div class="user-name" style="font-size:0.82rem;">'+m.username+badgeHTML+(isSelf?' <span style="font-size:10px;color:var(--text-muted);">(you)</span>':'')+'</div></div>'+(canKick?'<button class="btn-kick" data-mid="'+m.id+'">🚫</button>':''); 
+      if(canKick) li.querySelector('.btn-kick').addEventListener('click',e=>{e.stopPropagation();if(confirm('Kick '+m.username+'?')) socket.emit('kick_member',{roomId:currentRoom.id,memberSocketId:e.currentTarget.dataset.mid});}); 
+      if (!isSelf) {
+        li.style.cursor = 'pointer';
+        li.title = `Direct message @${m.username}`;
+        li.addEventListener('click', (e) => {
+          if (!e.target.closest('.btn-kick')) {
+            openDirectMessage(m.username);
+          }
+        });
+      }
+      elRoomMemberList.appendChild(li); 
+    });
   };
 
   const renderMessages = msgs=>{ if(!elTimeline) return; elTimeline.innerHTML=''; msgs.forEach(appendSingleMessage); scrollToBottom(); };
@@ -794,9 +1120,17 @@ document.addEventListener('DOMContentLoaded', () => {
         '</div>';
     }
 
+    const isHostMsg = currentRoom && currentRoom.hostUsername === msg.user?.username;
+    const authorBadges = renderUserBadgeHTML({ ...msg.user, isHost: isHostMsg });
+    const linkPreviewHTML = generateLinkPreviewHTML(msg.text);
+
+    const isSeen = msg.seenBy && msg.seenBy.some(u => u !== currentUser.username);
+    const deliveryTick = isSelf ? `<span class="message-delivery-status ${isSeen ? 'seen' : ''}" id="delivery-${msg.id}">${isSeen ? '✓✓' : '✓'}</span>` : '';
+
     const editedTag = msg.isEdited ? '<span class="message-edited-tag">(edited)</span>' : '';
     const actionsBar = '<div class="message-actions-bar">' +
       '<button class="message-action-btn reply" onclick="window.setReplyMessage(\''+msg.id+'\')" title="Reply">↩️</button>' +
+      '<button class="message-action-btn pin" onclick="window.pinMessage(\''+msg.id+'\')" title="Pin message">📌</button>' +
       '<button class="message-action-btn react" onclick="window.toggleEmojiPopForMessage(\''+msg.id+'\')" title="React">➕</button>' +
       (canEdit ? '<button class="message-action-btn edit" onclick="window.startEditMessage(\''+msg.id+'\')" title="Edit message">✏️</button>' : '') +
       (canDelete ? '<button class="message-action-btn delete" onclick="window.deleteMessage(\''+msg.id+'\')" title="Delete message">🗑️</button>' : '') +
@@ -807,8 +1141,10 @@ document.addEventListener('DOMContentLoaded', () => {
       '<div class="message-content-wrapper">' +
         '<div class="message-meta">' +
           '<span class="message-author">'+(msg.user?msg.user.username:'User')+'</span>' +
+          authorBadges +
           (msg.user?.isBot?'<span class="bot-tag">BOT</span>':'') +
           '<span class="message-timestamp">'+time+'</span>' +
+          deliveryTick +
           editedTag +
           actionsBar +
         '</div>' +
@@ -816,6 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
           quotedHTML +
           (msg.text ? '<span class="message-text-content">'+fmt(msg.text)+'</span>' : '') +
           media +
+          linkPreviewHTML +
         '</div>' +
         '<div class="reactions-row">'+renderReactionsHTML(msg.id,msg.roomId,msg.reactions)+'</div>' +
       '</div>';
@@ -1092,9 +1429,33 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Profile Modal
-  document.getElementById('btn-edit-profile')?.addEventListener('click', ()=>{ document.getElementById('input-profile-username').value=currentUser.username; document.getElementById('input-profile-avatar').value=currentUser.avatar; document.getElementById('input-profile-status').value=currentUser.customStatus||''; openModal(modalEditProfile); });
+  document.getElementById('btn-edit-profile')?.addEventListener('click', ()=>{ 
+    document.getElementById('input-profile-username').value=currentUser.username; 
+    document.getElementById('input-profile-avatar').value=currentUser.avatar; 
+    document.getElementById('input-profile-status').value=currentUser.customStatus||''; 
+    const badgeSelect = document.getElementById('input-profile-badge');
+    if (badgeSelect) badgeSelect.value = currentUser.badge || '';
+    openModal(modalEditProfile); 
+  });
   document.getElementById('btn-close-profile-modal')?.addEventListener('click', ()=>closeModal(modalEditProfile));
-  document.getElementById('btn-save-profile')?.addEventListener('click', ()=>{ const n=document.getElementById('input-profile-username')?.value.trim(); if(n){currentUser.username=n;currentUser.avatar=document.getElementById('input-profile-avatar')?.value.trim()||'⚡';currentUser.customStatus=document.getElementById('input-profile-status')?.value.trim()||'';socket.emit('update_profile',{status:'online',customStatus:currentUser.customStatus,avatar:currentUser.avatar});updateUserProfileUI();} closeModal(modalEditProfile); showToast('Profile saved!','success'); });
+  document.getElementById('btn-save-profile')?.addEventListener('click', ()=>{ 
+    const n=document.getElementById('input-profile-username')?.value.trim(); 
+    if(n){
+      currentUser.username=n;
+      currentUser.avatar=document.getElementById('input-profile-avatar')?.value.trim()||'⚡';
+      currentUser.customStatus=document.getElementById('input-profile-status')?.value.trim()||'';
+      currentUser.badge=document.getElementById('input-profile-badge')?.value||'';
+      socket.emit('update_profile',{
+        status:'online',
+        customStatus:currentUser.customStatus,
+        avatar:currentUser.avatar,
+        badge:currentUser.badge
+      });
+      updateUserProfileUI();
+    } 
+    closeModal(modalEditProfile); 
+    showToast('Profile saved!','success'); 
+  });
 
   // Misc
   document.getElementById('btn-clear-chat')?.addEventListener('click', ()=>{if(elTimeline) elTimeline.innerHTML='';});

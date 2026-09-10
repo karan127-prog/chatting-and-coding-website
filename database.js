@@ -111,11 +111,13 @@ function createTables() {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       is_admin INTEGER DEFAULT 0,
+      badge TEXT,
       created_at TEXT
     )`);
 
-    // Ensure is_admin column exists in case users table was created previously
+    // Ensure columns exist in case users table was created previously
     db.run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN badge TEXT`, () => {});
 
     // Ensure main admin user exists in SQLite (Karan Singh / Rajput2007)
     const adminUsername = process.env.ADMIN_USERNAME || 'Karan Singh';
@@ -143,6 +145,7 @@ function createTables() {
       host_username TEXT,
       tags TEXT,
       language TEXT,
+      pinned_message_id TEXT,
       created_at TEXT
     )`);
 
@@ -167,12 +170,15 @@ function createTables() {
       code_snippet TEXT,
       timestamp TEXT,
       is_edited INTEGER DEFAULT 0,
-      reply_to TEXT
+      reply_to TEXT,
+      seen_by TEXT
     )`);
 
     // Ensure columns exist in case messages table was created previously
     db.run(`ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE messages ADD COLUMN reply_to TEXT`, () => {});
+    db.run(`ALTER TABLE messages ADD COLUMN seen_by TEXT`, () => {});
+    db.run(`ALTER TABLE rooms ADD COLUMN pinned_message_id TEXT`, () => {});
 
     // User Extensions Table
     db.run(`CREATE TABLE IF NOT EXISTS user_extensions (
@@ -242,14 +248,14 @@ const DatabaseAPI = {
       if (useJsonFallback || !db) {
         const user = jsonStore.users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password_hash === hash);
         if (user) {
-          return resolve({ id: user.id, username: user.username, isAdmin: !!user.is_admin || user.username.toLowerCase() === 'karan singh' || user.username.toLowerCase() === 'admin' });
+          return resolve({ id: user.id, username: user.username, isAdmin: !!user.is_admin || user.username.toLowerCase() === 'karan singh' || user.username.toLowerCase() === 'admin', badge: user.badge || '' });
         }
         return reject(new Error('Invalid credentials'));
       }
 
-      db.get('SELECT id, username, is_admin FROM users WHERE LOWER(username) = LOWER(?) AND password_hash = ?', [username, hash], (err, row) => {
+      db.get('SELECT id, username, is_admin, badge FROM users WHERE LOWER(username) = LOWER(?) AND password_hash = ?', [username, hash], (err, row) => {
         if (err || !row) return reject(new Error('Invalid credentials'));
-        resolve({ id: row.id, username: row.username, isAdmin: !!row.is_admin || row.username.toLowerCase() === 'karan singh' || row.username.toLowerCase() === 'admin' });
+        resolve({ id: row.id, username: row.username, isAdmin: !!row.is_admin || row.username.toLowerCase() === 'karan singh' || row.username.toLowerCase() === 'admin', badge: row.badge || '' });
       });
     });
   },
@@ -460,6 +466,7 @@ const DatabaseAPI = {
             attachment: r.attachment ? (typeof r.attachment === 'string' ? JSON.parse(r.attachment) : r.attachment) : null,
             codeSnippet: r.code_snippet ? (typeof r.code_snippet === 'string' ? JSON.parse(r.code_snippet) : r.code_snippet) : null,
             replyTo: r.reply_to ? (typeof r.reply_to === 'string' ? JSON.parse(r.reply_to) : r.reply_to) : null,
+            seenBy: r.seen_by ? (typeof r.seen_by === 'string' ? JSON.parse(r.seen_by) : r.seen_by) : [],
             user: { username: r.username, avatar: r.user_avatar }
           }));
           resolve(parsed);
@@ -480,7 +487,7 @@ const DatabaseAPI = {
         const avatar = msg.user ? (msg.user.avatar || '⚡') : '🤖';
 
         db.run(
-          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, room_id, username, user_avatar, text, attachment, code_snippet, timestamp, is_edited, reply_to, seen_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             msg.id,
             msg.roomId,
@@ -491,7 +498,8 @@ const DatabaseAPI = {
             JSON.stringify(msg.codeSnippet || null),
             msg.timestamp,
             msg.isEdited ? 1 : 0,
-            JSON.stringify(msg.replyTo || null)
+            JSON.stringify(msg.replyTo || null),
+            JSON.stringify(msg.seenBy || [username])
           ],
           () => resolve(msg)
         );
@@ -534,6 +542,84 @@ const DatabaseAPI = {
 
       if (!useJsonFallback && db) {
         db.run('DELETE FROM messages WHERE id = ?', [messageId], () => resolve(true));
+      } else {
+        resolve(true);
+      }
+    });
+  },
+
+  markMessagesSeen: (roomId, messageIds, username) => {
+    return new Promise((resolve) => {
+      if (!roomId || !messageIds || !messageIds.length || !username) return resolve([]);
+      const updatedIds = [];
+      if (jsonStore.messages[roomId]) {
+        jsonStore.messages[roomId].forEach(m => {
+          if (messageIds.includes(m.id)) {
+            if (!m.seenBy) m.seenBy = [];
+            if (!m.seenBy.includes(username)) {
+              m.seenBy.push(username);
+              updatedIds.push(m.id);
+            }
+          }
+        });
+        saveJsonFallback();
+      }
+      if (!useJsonFallback && db) {
+        const placeholders = messageIds.map(() => '?').join(',');
+        db.all(`SELECT id, seen_by FROM messages WHERE room_id = ? AND id IN (${placeholders})`, [roomId, ...messageIds], (err, rows) => {
+          if (!err && rows) {
+            rows.forEach(r => {
+              let seen = [];
+              try { seen = r.seen_by ? (typeof r.seen_by === 'string' ? JSON.parse(r.seen_by) : r.seen_by) : []; } catch(e){}
+              if (!seen.includes(username)) {
+                seen.push(username);
+                db.run('UPDATE messages SET seen_by = ? WHERE id = ?', [JSON.stringify(seen), r.id]);
+                if (!updatedIds.includes(r.id)) updatedIds.push(r.id);
+              }
+            });
+          }
+          resolve(updatedIds);
+        });
+      } else {
+        resolve(updatedIds);
+      }
+    });
+  },
+
+  pinRoomMessage: (roomId, messageId) => {
+    return new Promise((resolve) => {
+      const room = Array.isArray(jsonStore.rooms) 
+        ? jsonStore.rooms.find(r => r.id === roomId) 
+        : (jsonStore.rooms ? jsonStore.rooms[roomId] : null);
+      if (room) { room.pinned_message_id = messageId; saveJsonFallback(); }
+      if (!useJsonFallback && db) {
+        db.run('UPDATE rooms SET pinned_message_id = ? WHERE id = ?', [messageId, roomId], () => resolve(true));
+      } else {
+        resolve(true);
+      }
+    });
+  },
+
+  unpinRoomMessage: (roomId) => {
+    return new Promise((resolve) => {
+      const room = Array.isArray(jsonStore.rooms) 
+        ? jsonStore.rooms.find(r => r.id === roomId) 
+        : (jsonStore.rooms ? jsonStore.rooms[roomId] : null);
+      if (room) { room.pinned_message_id = null; saveJsonFallback(); }
+      if (!useJsonFallback && db) {
+        db.run('UPDATE rooms SET pinned_message_id = NULL WHERE id = ?', [roomId], () => resolve(true));
+      } else {
+        resolve(true);
+      }
+    });
+  },
+
+  updateUserBadge: (username, badge) => {
+    return new Promise((resolve) => {
+      const u = (jsonStore.users || []).find(x => x.username.toLowerCase() === username.toLowerCase());
+      if (u) { u.badge = badge; saveJsonFallback(); }
+      if (!useJsonFallback && db) {
+        db.run('UPDATE users SET badge = ? WHERE LOWER(username) = LOWER(?)', [badge, username], () => resolve(true));
       } else {
         resolve(true);
       }
