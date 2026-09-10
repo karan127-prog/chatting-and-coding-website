@@ -55,14 +55,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const authView = document.getElementById('auth-view');
   const appContainer = document.querySelector('.app-container');
   const authError = document.getElementById('auth-error-msg');
-  const storedUser = localStorage.getItem('pulsechat_user');
+
+  // Purge legacy localStorage user so old admin sessions do not auto-login
+  try {
+    localStorage.removeItem('pulsechat_user');
+  } catch (e) {}
+
+  // Check tab session (persists across page reloads/F5, but is completely empty on fresh site visits)
+  let sessionUser = null;
+  try {
+    sessionUser = sessionStorage.getItem('pulsechat_session');
+  } catch (e) {}
   
-  if (storedUser) {
+  if (sessionUser) {
     try {
-      const data = JSON.parse(storedUser);
-      if (data && data.username && data.token) {
+      const data = JSON.parse(sessionUser);
+      if (data && data.username) {
         currentUser.username = data.username;
-        currentUser.token = data.token;
+        currentUser.token = data.token || '';
         currentUser.sessionId = data.sessionId || '';
         currentUser.isAdmin = !!data.isAdmin || (data.username && (data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin'));
         authView.style.display = 'none';
@@ -70,17 +80,23 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.emit('user_join', currentUser);
         socket._registered = true;
       } else {
-        localStorage.removeItem('pulsechat_user');
+        sessionStorage.removeItem('pulsechat_session');
         currentUser.username = '';
+        currentUser.token = '';
+        currentUser.sessionId = '';
+        currentUser.isAdmin = false;
         authView.style.display = 'flex';
       }
     } catch (e) {
-      localStorage.removeItem('pulsechat_user');
+      sessionStorage.removeItem('pulsechat_session');
       currentUser.username = '';
+      currentUser.token = '';
+      currentUser.sessionId = '';
+      currentUser.isAdmin = false;
       authView.style.display = 'flex';
     }
   } else {
-    // First time opening website: MUST ask to log in
+    // First time opening website: MUST ask to log in (no default account)
     currentUser.username = '';
     currentUser.token = '';
     currentUser.sessionId = '';
@@ -153,7 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
       currentUser.token = data.token;
       currentUser.sessionId = data.sessionId || '';
       currentUser.isAdmin = !!data.isAdmin || data.username.toLowerCase() === 'karan singh' || data.username.toLowerCase() === 'admin';
-      localStorage.setItem('pulsechat_user', JSON.stringify({
+      sessionStorage.setItem('pulsechat_session', JSON.stringify({
         username: data.username,
         token: data.token,
         sessionId: currentUser.sessionId,
@@ -188,6 +204,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     currentUser.username = guestName;
     currentUser.token = ''; 
+    currentUser.sessionId = 'guest-' + Date.now();
+    currentUser.isAdmin = false;
+    sessionStorage.setItem('pulsechat_session', JSON.stringify({
+      username: currentUser.username,
+      token: '',
+      sessionId: currentUser.sessionId,
+      isAdmin: false
+    }));
     socket.emit('register_user', currentUser);
     socket.emit('user_join', currentUser);
     socket._registered = true;
@@ -606,18 +630,19 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('session_synced', ({ sessionId }) => {
     if (sessionId) {
       currentUser.sessionId = sessionId;
-      const stored = localStorage.getItem('pulsechat_user');
+      const stored = sessionStorage.getItem('pulsechat_session');
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
           parsed.sessionId = sessionId;
-          localStorage.setItem('pulsechat_user', JSON.stringify(parsed));
+          sessionStorage.setItem('pulsechat_session', JSON.stringify(parsed));
         } catch (e) {}
       }
     }
   });
 
   socket.on('auth_error', ({ message }) => {
+    sessionStorage.removeItem('pulsechat_session');
     localStorage.removeItem('pulsechat_user');
     currentUser.username = '';
     currentUser.token = '';
@@ -908,6 +933,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.emit('user_logout');
       }
     } catch (e) {}
+    sessionStorage.removeItem('pulsechat_session');
     localStorage.removeItem('pulsechat_user');
     currentUser.username = '';
     currentUser.token = '';
@@ -1063,6 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.emit('user_logout');
       }
     } catch (e) {}
+    sessionStorage.removeItem('pulsechat_session');
     localStorage.removeItem('pulsechat_user');
     currentUser.username = '';
     currentUser.token = '';
